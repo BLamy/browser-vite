@@ -1,6 +1,7 @@
 // @ts-check
-import fs from 'fs'
-import path from 'path'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import nodeResolve from '@rollup/plugin-node-resolve'
 import typescript from '@rollup/plugin-typescript'
 import commonjs from '@rollup/plugin-commonjs'
@@ -9,9 +10,11 @@ import alias from '@rollup/plugin-alias'
 import replace from '@rollup/plugin-replace'
 import license from 'rollup-plugin-license'
 import MagicString from 'magic-string'
-import chalk from 'chalk'
-import fg from 'fast-glob'
-import { sync as resolve } from 'resolve'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
 
 /**
  * @type { import('rollup').RollupOptions }
@@ -20,7 +23,7 @@ const envConfig = {
   input: path.resolve(__dirname, 'src/client/env.ts'),
   plugins: [
     typescript({
-      target: 'es2018',
+      target: 'es2020',
       include: ['src/client/env.ts'],
       baseUrl: path.resolve(__dirname, 'src/env'),
       paths: {
@@ -30,7 +33,8 @@ const envConfig = {
   ],
   output: {
     file: path.resolve(__dirname, 'dist/client', 'env.mjs'),
-    sourcemap: true
+    sourcemap: true,
+    format: 'es'
   }
 }
 
@@ -42,7 +46,7 @@ const clientConfig = {
   external: ['./env', '@vite/env'],
   plugins: [
     typescript({
-      target: 'es2018',
+      target: 'es2020',
       include: ['src/client/**/*.ts'],
       baseUrl: path.resolve(__dirname, 'src/client'),
       paths: {
@@ -52,7 +56,8 @@ const clientConfig = {
   ],
   output: {
     file: path.resolve(__dirname, 'dist/client', 'client.mjs'),
-    sourcemap: true
+    sourcemap: true,
+    format: 'es'
   }
 }
 
@@ -64,7 +69,7 @@ const browserClientConfig = {
   external: ['./env'],
   plugins: [
     typescript({
-      target: 'es2018',
+      target: 'es2020',
       include: ['src/client/**/*.ts'],
       baseUrl: path.resolve(__dirname, 'src/client'),
       paths: {
@@ -74,7 +79,8 @@ const browserClientConfig = {
   ],
   output: {
     file: path.resolve(__dirname, 'dist/client', 'browser.mjs'),
-    sourcemap: true
+    sourcemap: true,
+    format: 'es'
   }
 }
 
@@ -92,17 +98,15 @@ const sharedNodeOptions = {
     entryFileNames: `node/[name].js`,
     chunkFileNames: 'node/chunks/dep-[hash].js',
     exports: 'named',
-    format: 'cjs',
+    format: 'es',
     externalLiveBindings: false,
     freeze: false,
     sourcemap: true
   },
   onwarn(warning, warn) {
-    // node-resolve complains a lot about this but seems to still work?
     if (warning.message.includes('Package subpath')) {
       return
     }
-    // we use the eval('require') trick to deal with optional deps
     if (warning.message.includes('Use of eval')) {
       return
     }
@@ -114,7 +118,6 @@ const sharedNodeOptions = {
 }
 
 /**
- *
  * @param {boolean} isProduction
  * @returns {import('rollup').RollupOptions}
  */
@@ -135,28 +138,22 @@ const createNodeConfig = (isProduction) => {
       'resolve',
       'rollup',
       'sass',
-      ...(isProduction
-        ? []
-        : Object.keys(require('./package.json').dependencies))
+      ...(isProduction ? [] : Object.keys(pkg.dependencies))
     ],
     plugins: [
       alias({
-        // packages with "module" field that doesn't play well with cjs bundles
         entries: {
           '@vue/compiler-dom': require.resolve(
             '@vue/compiler-dom/dist/compiler-dom.cjs.js'
-          ),
-          'big.js': require.resolve('big.js/big.js')
+          )
         }
       }),
       nodeResolve({ preferBuiltins: true }),
       typescript({
-        target: 'es2019',
+        target: 'es2022',
         include: ['src/**/*.ts', 'types/**'],
         exclude: ['src/**/__tests__/**'],
         esModuleInterop: true,
-        // in production we use api-extractor for dts generation
-        // in development we need to rely on the rollup ts plugin
         ...(isProduction
           ? {}
           : {
@@ -165,88 +162,56 @@ const createNodeConfig = (isProduction) => {
               declarationDir: path.resolve(__dirname, 'dist/')
             })
       }),
-      // Some deps have try...catch require of optional deps, but rollup will
-      // generate code that force require them upfront for side effects.
-      // Shim them with eval() so rollup can skip these calls.
       isProduction &&
         shimDepsPlugin({
           'plugins/terser.ts': {
             src: `require.resolve('terser'`,
             replacement: `require.resolve('browser-vite/dist/node/terser'`
-          },
-          // chokidar -> fsevents
-          'fsevents-handler.js': {
-            src: `require('fsevents')`,
-            replacement: `eval('require')('fsevents')`
-          },
-          // cac re-assigns module.exports even in its mjs dist
-          'cac/dist/index.mjs': {
-            src: `if (typeof module !== "undefined") {`,
-            replacement: `if (false) {`
-          },
-          // postcss-import -> sugarss
-          'process-content.js': {
-            src: 'require("sugarss")',
-            replacement: `eval('require')('sugarss')`
-          },
-          'import-from/index.js': {
-            pattern: /require\(resolveFrom/g,
-            replacement: `eval('require')(resolveFrom`
-          },
-          'lilconfig/dist/index.js': {
-            pattern: /: require,/g,
-            replacement: `: eval('require'),`
           }
         }),
       commonjs({
         extensions: ['.js'],
-        // Optional peer deps of ws. Native deps that are mostly for performance.
-        // Since ws is not that perf critical for us, just ignore these deps.
         ignore: ['bufferutil', 'utf-8-validate']
       }),
       json(),
       isProduction && licensePlugin()
-    ]
+    ].filter(Boolean)
   }
 
   return nodeConfig
 }
 
 /**
+ * Browser build configuration - this is the key output for browser-vite
  * @type { import('rollup').RollupOptions }
  */
 const browserConfig = {
   input: path.resolve(__dirname, 'src/browser/index.ts'),
-  external: ['fsevents', 'sass', 'fs'],
+  external: ['fsevents', 'sass', 'fs', 'node:fs', 'node:path', 'node:url'],
   plugins: [
     viteForBrowserPlugin(),
     replace({
       preventAssignment: true,
       values: {
         'process.env.DEBUG': 'false',
-        'process.env.VITE_BROWSER': 'true'
+        'process.env.VITE_BROWSER': 'true',
+        'process.env.NODE_ENV': JSON.stringify('production')
       }
     }),
     alias({
-      // packages with "module" field that doesn't play well with cjs bundles
-      entries: {
-        'big.js': require.resolve('big.js/big.js')
-      }
+      entries: {}
     }),
     nodeResolve({
       mainFields: ['module', 'jsnext:main', 'browser'],
-      preferBuiltins: true,
+      preferBuiltins: false,
       exportConditions: ['browser', 'default', 'module', 'import'],
       dedupe: ['postcss']
     }),
     typescript({
-      target: 'es2019',
+      target: 'es2022',
       include: ['src/**/*.ts'],
       esModuleInterop: true
     }),
-    // Some deps have try...catch require of optional deps, but rollup will
-    // generate code that force require them upfront for side effects.
-    // Shim them with eval() so rollup can skip these calls.
     shimDepsPlugin({
       'plugins/terser.ts': {
         src: `require.resolve('terser'`,
@@ -256,8 +221,6 @@ const browserConfig = {
     commonjs({
       transformMixedEsModules: true,
       requireReturnsDefault: 'auto',
-      // Optional peer deps of ws. Native deps that are mostly for performance.
-      // Since ws is not that perf critical for us, just ignore these deps.
       ignore: ['bufferutil', 'utf-8-validate']
     }),
     json()
@@ -269,15 +232,13 @@ const browserConfig = {
   },
   output: {
     dir: path.resolve(__dirname, 'dist/browser'),
+    format: 'es',
     sourcemap: true
   }
 }
 
 /**
- * Terser needs to be run inside a worker, so it cannot be part of the main
- * bundle. We produce a separate bundle for it and shims plugin/terser.ts to
- * use the production path during build.
- *
+ * Terser bundle config
  * @type { import('rollup').RollupOptions }
  */
 const terserConfig = {
@@ -337,7 +298,7 @@ function shimDepsPlugin(deps) {
 
           return {
             code: magicString.toString(),
-            map: magicString.generateMap({ hires: true })
+            map: magicString.generateMap({ hires: 'boundary' })
           }
         }
       }
@@ -359,19 +320,17 @@ function shimDepsPlugin(deps) {
 function licensePlugin() {
   return license({
     thirdParty(dependencies) {
-      // https://github.com/rollup/rollup/blob/master/build-plugins/generate-license-file.js
-      // MIT Licensed https://github.com/rollup/rollup/blob/master/LICENSE-CORE.md
       const coreLicense = fs.readFileSync(
         path.resolve(__dirname, '../../LICENSE')
       )
       function sortLicenses(licenses) {
         let withParenthesis = []
         let noParenthesis = []
-        licenses.forEach((license) => {
-          if (/^\(/.test(license)) {
-            withParenthesis.push(license)
+        licenses.forEach((lic) => {
+          if (/^\(/.test(lic)) {
+            withParenthesis.push(lic)
           } else {
-            noParenthesis.push(license)
+            noParenthesis.push(lic)
           }
         })
         withParenthesis = withParenthesis.sort()
@@ -386,7 +345,7 @@ function licensePlugin() {
         .map(
           ({
             name,
-            license,
+            license: depLicense,
             licenseText,
             author,
             maintainers,
@@ -394,8 +353,8 @@ function licensePlugin() {
             repository
           }) => {
             let text = `## ${name}\n`
-            if (license) {
-              text += `License: ${license}\n`
+            if (depLicense) {
+              text += `License: ${depLicense}\n`
             }
             const names = new Set()
             if (author && author.name) {
@@ -412,21 +371,6 @@ function licensePlugin() {
             if (repository) {
               text += `Repository: ${repository.url || repository}\n`
             }
-            if (!licenseText) {
-              try {
-                const pkgDir = path.dirname(
-                  resolve(path.join(name, 'package.json'), {
-                    preserveSymlinks: false
-                  })
-                )
-                const licenseFile = fg.sync(`${pkgDir}/LICENSE*`, {
-                  caseSensitiveMatch: false
-                })[0]
-                if (licenseFile) {
-                  licenseText = fs.readFileSync(licenseFile, 'utf-8')
-                }
-              } catch {}
-            }
             if (licenseText) {
               text +=
                 '\n' +
@@ -438,7 +382,7 @@ function licensePlugin() {
                   .join('\n') +
                 '\n'
             }
-            licenses.add(license)
+            licenses.add(depLicense)
             return text
           }
         )
@@ -452,57 +396,226 @@ function licensePlugin() {
         `${sortLicenses(licenses).join(', ')}\n\n` +
         `# Bundled dependencies:\n` +
         dependencyLicenseTexts
-      const existingLicenseText = fs.readFileSync('LICENSE.md', 'utf8')
-      if (existingLicenseText !== licenseText) {
+
+      try {
+        const existingLicenseText = fs.readFileSync('LICENSE.md', 'utf8')
+        if (existingLicenseText !== licenseText) {
+          fs.writeFileSync('LICENSE.md', licenseText)
+          console.warn('\nLICENSE.md updated. You should commit the updated file.\n')
+        }
+      } catch {
         fs.writeFileSync('LICENSE.md', licenseText)
-        console.warn(
-          chalk.yellow(
-            '\nLICENSE.md updated. You should commit the updated file.\n'
-          )
-        )
       }
     }
   })
 }
 
+/**
+ * Browser shims plugin - provides browser-compatible replacements for Node.js modules
+ * Updated for Vite 6 dependencies
+ */
 function viteForBrowserPlugin() {
-  const pkgJson = require('./package.json')
+  // Browser shims for Node.js-only dependencies
   const aliases = {
+    // Logging - picocolors replaces chalk in Vite 6
+    picocolors: `
+      const identity = (s) => s;
+      const p = {
+        red: identity, green: identity, yellow: identity, blue: identity,
+        magenta: identity, cyan: identity, white: identity, gray: identity,
+        bold: identity, dim: identity, underline: identity, inverse: identity,
+        hidden: identity, strikethrough: identity, black: identity,
+        bgRed: identity, bgGreen: identity, bgYellow: identity, bgBlue: identity,
+        bgMagenta: identity, bgCyan: identity, bgWhite: identity, bgBlack: identity,
+        reset: identity, isColorSupported: false,
+        createColors: () => p
+      };
+      export default p;
+    `,
+    // Legacy chalk support (for any remaining usage)
     chalk: `const p = new Proxy(s=>s, { get() {return p;}});export default p;`,
+
+    // Debug logging - no-op in browser
     debug: `export default function debug() {return () => {}}`,
-    'postcss-load-config':
-      'export default () => {throw new Error("No PostCSS Config found")}',
-    sirv: 'export default function () {}'
+
+    // PostCSS config loading - not available in browser
+    'postcss-load-config': `export default () => {throw new Error("No PostCSS Config found")}`,
+
+    // Static file serving - not needed in browser
+    sirv: `export default function () {}`,
+
+    // File globbing - tinyglobby replaces fast-glob in Vite 6
+    tinyglobby: `
+      export async function glob() { return []; }
+      export function globSync() { return []; }
+      export async function expandGlob() { return []; }
+      export default { glob, globSync, expandGlob };
+    `,
+    'fast-glob': `
+      export default async function fg() { return []; }
+      export const sync = () => [];
+      export const async = async () => [];
+      export const stream = () => { throw new Error('Not supported in browser'); };
+      export const generateTasks = () => [];
+      export const isDynamicPattern = () => false;
+      export const escapePath = (s) => s;
+    `,
+
+    // File watching - stub for browser
+    chokidar: `
+      export const watch = () => ({
+        on: function() { return this; },
+        close: () => {},
+        add: function() { return this; },
+        unwatch: function() { return this; }
+      });
+      export default { watch };
+    `,
+
+    // Process utilities - stub for browser
+    execa: `
+      export const execa = () => Promise.reject(new Error('Not supported in browser'));
+      export const execaSync = () => { throw new Error('Not supported in browser'); };
+      export const execaCommand = () => Promise.reject(new Error('Not supported in browser'));
+      export default execa;
+    `,
+
+    // Terminal utilities
+    open: `export default () => Promise.resolve();`,
+    'launch-editor-middleware': `export default () => (req, res, next) => next();`,
+
+    // Compression - not needed in browser
+    compression: `export default () => (req, res, next) => next();`,
+
+    // HTTP proxy - not needed in browser
+    'http-proxy': `
+      export function createProxyServer() {
+        return { web: () => {}, ws: () => {}, on: () => {} };
+      }
+      export default { createProxyServer };
+    `,
+
+    // Self-signed certs - not needed in browser
+    selfsigned: `
+      export function generate() { return { private: '', public: '', cert: '' }; }
+      export default { generate };
+    `,
+
+    // WebSocket server - not needed in browser (we use client WS)
+    ws: `
+      export class WebSocketServer { constructor() {} on() {} close() {} }
+      export class WebSocket { constructor() {} on() {} send() {} close() {} }
+      export default WebSocket;
+    `,
+
+    // Connect middleware - stub for browser
+    connect: `
+      export default function createConnect() {
+        const app = () => {};
+        app.use = () => app;
+        return app;
+      }
+    `,
+    cors: `export default () => (req, res, next) => next();`,
+    etag: `export default () => '';`,
+
+    // Node.js built-in module shims
+    'node:fs': `
+      export const readFileSync = () => '';
+      export const writeFileSync = () => {};
+      export const existsSync = () => false;
+      export const mkdirSync = () => {};
+      export const readdirSync = () => [];
+      export const statSync = () => ({});
+      export const promises = {
+        readFile: async () => '',
+        writeFile: async () => {},
+        readdir: async () => [],
+        stat: async () => ({}),
+        mkdir: async () => {},
+        rm: async () => {},
+        access: async () => {}
+      };
+      export default { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, promises };
+    `,
+    'node:path': `
+      export const resolve = (...args) => args.join('/').replace(/\\/+/g, '/');
+      export const dirname = (p) => p.split('/').slice(0, -1).join('/');
+      export const basename = (p, ext) => { const b = p.split('/').pop() || ''; return ext && b.endsWith(ext) ? b.slice(0, -ext.length) : b; };
+      export const extname = (p) => { const m = p.match(/\\.[^./\\\\]+$/); return m ? m[0] : ''; };
+      export const join = (...args) => args.join('/').replace(/\\/+/g, '/');
+      export const relative = (from, to) => to;
+      export const isAbsolute = (p) => p.startsWith('/');
+      export const normalize = (p) => p.replace(/\\/+/g, '/');
+      export const sep = '/';
+      export const posix = { resolve, dirname, basename, extname, join, relative, isAbsolute, normalize, sep };
+      export default { resolve, dirname, basename, extname, join, relative, isAbsolute, normalize, sep, posix };
+    `,
+    'node:url': `
+      export const fileURLToPath = (url) => url.replace('file://', '');
+      export const pathToFileURL = (path) => new URL('file://' + path);
+      export const URL = globalThis.URL;
+      export default { fileURLToPath, pathToFileURL, URL };
+    `,
+    'node:module': `
+      export const createRequire = () => () => {};
+      export const builtinModules = [];
+      export default { createRequire, builtinModules };
+    `,
+
+    // Source map support - stub
+    'source-map-support': `
+      export const install = () => {};
+      export default { install };
+    `
   }
 
   return {
     name: 'vite:browser',
-    resolveId: (id, importer) => {
-      if (id in aliases) {
-        return `$browser_shim$${id}`
-      } else if (id in pkgJson.dependencies) {
-        return {
-          id,
-          external: true
+    resolveId(id) {
+      // Handle node: prefixed modules
+      if (id.startsWith('node:')) {
+        const modName = id.slice(5)
+        if (`node:${modName}` in aliases) {
+          return `\0browser_shim:node:${modName}`
         }
       }
-    },
-    load: (id) => {
-      if (id.startsWith('$browser_shim$')) {
-        return aliases[id.slice('$browser_shim$'.length)]
+      // Handle regular module names
+      if (id in aliases) {
+        return `\0browser_shim:${id}`
       }
-    },
-    transform: (code, id) => {
-      const ms = new MagicString(code)
-      return {
-        map: ms.generateMap(),
-        code: code
-          .replace(
-            /(os\.platform\(\)|process\.platform)\s*===\s*'win32'/g,
-            'false'
-          )
-          .replace(/require\('pnpapi'\)/g, 'undefined')
+      // Mark dependencies as external
+      if (id in pkg.dependencies && !(id in aliases)) {
+        return { id, external: true }
       }
+      return null
+    },
+    load(id) {
+      if (id.startsWith('\0browser_shim:')) {
+        const shimName = id.slice('\0browser_shim:'.length)
+        return aliases[shimName] || aliases[`node:${shimName}`]
+      }
+      return null
+    },
+    transform(code, id) {
+      // Replace platform checks with false for browser
+      let transformed = code
+        .replace(
+          /(os\.platform\(\)|process\.platform)\s*===\s*['"]win32['"]/g,
+          'false'
+        )
+        .replace(/require\(['"]pnpapi['"]\)/g, 'undefined')
+        .replace(/process\.versions\.pnp/g, 'undefined')
+
+      // Only generate sourcemap if we made changes
+      if (transformed !== code) {
+        const ms = new MagicString(code)
+        return {
+          code: transformed,
+          map: ms.generateMap({ hires: 'boundary' })
+        }
+      }
+      return null
     }
   }
 }
