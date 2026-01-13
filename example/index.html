@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Browser-Vite Example</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #1a1a2e;
+        color: #eee;
+        min-height: 100vh;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      h1 {
+        color: #646cff;
+        margin-bottom: 10px;
+      }
+      .status {
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin: 10px 0;
+        font-family: monospace;
+      }
+      .status.success {
+        background: #1a4d1a;
+        border: 1px solid #2d7a2d;
+      }
+      .status.error {
+        background: #4d1a1a;
+        border: 1px solid #7a2d2d;
+      }
+      .status.pending {
+        background: #4d4d1a;
+        border: 1px solid #7a7a2d;
+      }
+      #app {
+        margin-top: 20px;
+        padding: 20px;
+        background: #16213e;
+        border-radius: 8px;
+        border: 1px solid #0f3460;
+      }
+      #logs {
+        margin-top: 20px;
+        padding: 15px;
+        background: #0a0a15;
+        border-radius: 8px;
+        font-family: monospace;
+        font-size: 12px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .log-entry {
+        padding: 2px 0;
+        border-bottom: 1px solid #222;
+      }
+      .log-entry.info { color: #64b5f6; }
+      .log-entry.success { color: #81c784; }
+      .log-entry.error { color: #e57373; }
+      .log-entry.warn { color: #ffb74d; }
+      button {
+        background: #646cff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        margin-right: 10px;
+        font-size: 14px;
+      }
+      button:hover {
+        background: #535bf2;
+      }
+      button:disabled {
+        background: #444;
+        cursor: not-allowed;
+      }
+      .test-result {
+        margin: 5px 0;
+        padding: 8px 12px;
+        border-radius: 4px;
+      }
+      .test-result.pass {
+        background: #1a3d1a;
+      }
+      .test-result.fail {
+        background: #3d1a1a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Browser-Vite Example</h1>
+      <p>Testing browser-vite transformation capabilities</p>
+
+      <div id="status" class="status pending">
+        Initializing browser-vite...
+      </div>
+
+      <div>
+        <button id="runTests" disabled>Run Tests</button>
+        <button id="transformCode" disabled>Transform Sample Code</button>
+        <button id="testHMR" disabled>Test HMR</button>
+      </div>
+
+      <div id="testResults"></div>
+
+      <div id="app">
+        <p>React app will render here after transformation</p>
+      </div>
+
+      <div id="logs">
+        <div class="log-entry info">Waiting for browser-vite to initialize...</div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
