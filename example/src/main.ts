@@ -656,6 +656,7 @@ function createHMRRuntime(): string {
   <meta charset="UTF-8">
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/chobitsu"></script>
   <style>
     body { margin: 0; }
     #root { min-height: 100vh; }
@@ -682,6 +683,25 @@ function createHMRRuntime(): string {
 
     function hmrLog(msg) {
       window.parent.postMessage({ type: 'hmr-log', message: msg }, '*');
+    }
+
+    // Initialize Chobitsu CDP
+    function initChobitsu() {
+      if (typeof chobitsu === 'undefined') {
+        hmrLog('Chobitsu not loaded, skipping CDP initialization');
+        return;
+      }
+
+      // Set up message handler to forward CDP responses to parent
+      chobitsu.setOnMessage(function(message) {
+        window.parent.postMessage({
+          type: 'cdp-response',
+          message: message
+        }, '*');
+      });
+
+      hmrLog('Chobitsu CDP initialized');
+      window.parent.postMessage({ type: 'cdp-ready' }, '*');
     }
 
     function renderApp(AppComponent) {
@@ -734,10 +754,19 @@ function createHMRRuntime(): string {
       if (event.data && event.data.type === 'hmr-update') {
         handleHMRUpdate(event.data.code, event.data.fileType);
       }
+      // Handle CDP commands from parent
+      if (event.data && event.data.type === 'cdp-command') {
+        if (typeof chobitsu !== 'undefined') {
+          chobitsu.sendRawMessage(event.data.message);
+        }
+      }
     });
 
     window.parent.postMessage({ type: 'hmr-ready' }, '*');
     hmrLog('HMR Runtime initialized');
+
+    // Initialize Chobitsu after a short delay to ensure it's loaded
+    setTimeout(initChobitsu, 100);
   </script>
 </body>
 </html>`;
@@ -821,6 +850,78 @@ async function updatePreview() {
 }
 
 // =============================================================================
+// CDP (Chrome DevTools Protocol) via Chobitsu
+// =============================================================================
+
+let cdpReady = false;
+let cdpMessageId = 0;
+const cdpCallbacks: Map<number, (result: any) => void> = new Map();
+const cdpEventListeners: Map<string, Set<(params: any) => void>> = new Map();
+
+// Send a CDP command to the iframe
+function sendCDPCommand(method: string, params: Record<string, any> = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if (!cdpReady) {
+      reject(new Error('CDP not ready'));
+      return;
+    }
+
+    const id = ++cdpMessageId;
+    cdpCallbacks.set(id, resolve);
+
+    const message = JSON.stringify({ id, method, params });
+    previewFrame.contentWindow?.postMessage({ type: 'cdp-command', message }, '*');
+
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      if (cdpCallbacks.has(id)) {
+        cdpCallbacks.delete(id);
+        reject(new Error(`CDP command timed out: ${method}`));
+      }
+    }, 10000);
+  });
+}
+
+// Subscribe to CDP events
+function onCDPEvent(eventName: string, callback: (params: any) => void) {
+  if (!cdpEventListeners.has(eventName)) {
+    cdpEventListeners.set(eventName, new Set());
+  }
+  cdpEventListeners.get(eventName)!.add(callback);
+
+  // Return unsubscribe function
+  return () => {
+    cdpEventListeners.get(eventName)?.delete(callback);
+  };
+}
+
+// Handle CDP response from iframe
+function handleCDPResponse(message: string) {
+  try {
+    const parsed = JSON.parse(message);
+
+    // Handle response to a command
+    if (parsed.id !== undefined) {
+      const callback = cdpCallbacks.get(parsed.id);
+      if (callback) {
+        cdpCallbacks.delete(parsed.id);
+        callback(parsed.result || parsed.error);
+      }
+    }
+
+    // Handle event
+    if (parsed.method) {
+      const listeners = cdpEventListeners.get(parsed.method);
+      if (listeners) {
+        listeners.forEach((cb) => cb(parsed.params));
+      }
+    }
+  } catch (e) {
+    log(`CDP parse error: ${e}`, 'error');
+  }
+}
+
+// =============================================================================
 // Event Handlers
 // =============================================================================
 
@@ -831,6 +932,11 @@ window.addEventListener('message', (event) => {
     updatePreview();
   } else if (event.data?.type === 'hmr-log') {
     log(`iframe: ${event.data.message}`, 'hmr');
+  } else if (event.data?.type === 'cdp-ready') {
+    cdpReady = true;
+    log('CDP (Chobitsu) ready', 'success');
+  } else if (event.data?.type === 'cdp-response') {
+    handleCDPResponse(event.data.message);
   }
 });
 
@@ -928,9 +1034,18 @@ async function initialize() {
     // Initialize iframe with HMR runtime
     initIframe();
 
-    // Expose for debugging
+    // Expose for debugging and external use
     (window as any).browserVite = browserVite;
     (window as any).fileSystem = fileSystem;
+
+    // Expose CDP API
+    (window as any).cdp = {
+      send: sendCDPCommand,
+      on: onCDPEvent,
+      get ready() {
+        return cdpReady;
+      },
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Error: ${message}`, 'error');
