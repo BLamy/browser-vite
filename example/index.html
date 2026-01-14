@@ -3,29 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Browser-Vite Example</title>
+    <title>Browser-Vite Live Editor</title>
     <style>
+      * {
+        box-sizing: border-box;
+      }
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         margin: 0;
-        padding: 20px;
+        padding: 0;
         background: #1a1a2e;
         color: #eee;
-        min-height: 100vh;
+        height: 100vh;
+        overflow: hidden;
       }
       .container {
-        max-width: 1200px;
-        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
       }
-      h1 {
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 20px;
+        background: #16213e;
+        border-bottom: 1px solid #0f3460;
+        flex-shrink: 0;
+      }
+      header h1 {
         color: #646cff;
-        margin-bottom: 10px;
+        margin: 0;
+        font-size: 20px;
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 15px;
       }
       .status {
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin: 10px 0;
+        padding: 6px 12px;
+        border-radius: 4px;
         font-family: monospace;
+        font-size: 12px;
       }
       .status.success {
         background: #1a4d1a;
@@ -39,83 +59,144 @@
         background: #4d4d1a;
         border: 1px solid #7a7a2d;
       }
-      #app {
-        margin-top: 20px;
-        padding: 20px;
-        background: #16213e;
-        border-radius: 8px;
-        border: 1px solid #0f3460;
+      select, button {
+        background: #0f3460;
+        color: white;
+        border: 1px solid #1a4d8e;
+        padding: 8px 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
       }
-      #logs {
-        margin-top: 20px;
-        padding: 15px;
-        background: #0a0a15;
-        border-radius: 8px;
-        font-family: monospace;
+      select:hover, button:hover {
+        background: #1a4d8e;
+      }
+      button:disabled, select:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button.primary {
+        background: #646cff;
+        border-color: #646cff;
+      }
+      button.primary:hover {
+        background: #535bf2;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .main {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+      .editor-pane {
+        width: 50%;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #0f3460;
+      }
+      .editor-header {
+        padding: 8px 15px;
+        background: #0f3460;
         font-size: 12px;
-        max-height: 300px;
+        color: #888;
+        border-bottom: 1px solid #1a4d8e;
+      }
+      #editor {
+        flex: 1;
+        overflow: hidden;
+      }
+      #editor .cm-editor {
+        height: 100%;
+      }
+      .preview-pane {
+        width: 50%;
+        display: flex;
+        flex-direction: column;
+      }
+      .preview-header {
+        padding: 8px 15px;
+        background: #0f3460;
+        font-size: 12px;
+        color: #888;
+        border-bottom: 1px solid #1a4d8e;
+        display: flex;
+        justify-content: space-between;
+      }
+      #preview {
+        flex: 1;
+        border: none;
+        background: white;
+      }
+      .logs-pane {
+        height: 150px;
+        background: #0a0a15;
+        border-top: 1px solid #0f3460;
         overflow-y: auto;
+        font-family: monospace;
+        font-size: 11px;
+        padding: 10px;
+        flex-shrink: 0;
       }
       .log-entry {
         padding: 2px 0;
-        border-bottom: 1px solid #222;
+        border-bottom: 1px solid #1a1a2e;
       }
       .log-entry.info { color: #64b5f6; }
       .log-entry.success { color: #81c784; }
       .log-entry.error { color: #e57373; }
       .log-entry.warn { color: #ffb74d; }
-      button {
+
+      /* Resize handle */
+      .resize-handle {
+        width: 4px;
+        background: #0f3460;
+        cursor: col-resize;
+      }
+      .resize-handle:hover {
         background: #646cff;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 5px;
-        cursor: pointer;
-        margin-right: 10px;
-        font-size: 14px;
-      }
-      button:hover {
-        background: #535bf2;
-      }
-      button:disabled {
-        background: #444;
-        cursor: not-allowed;
-      }
-      .test-result {
-        margin: 5px 0;
-        padding: 8px 12px;
-        border-radius: 4px;
-      }
-      .test-result.pass {
-        background: #1a3d1a;
-      }
-      .test-result.fail {
-        background: #3d1a1a;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>Browser-Vite Example</h1>
-      <p>Testing browser-vite transformation capabilities</p>
+      <header>
+        <h1>Browser-Vite Live Editor</h1>
+        <div class="controls">
+          <div id="status" class="status pending">Initializing...</div>
+          <select id="templateSelect" disabled>
+            <option value="react">React (TSX)</option>
+            <option value="typescript">TypeScript</option>
+            <option value="css">CSS</option>
+          </select>
+          <label>
+            <input type="checkbox" id="autoRun" checked disabled />
+            Auto-run
+          </label>
+          <button id="runCode" class="primary" disabled>Run</button>
+        </div>
+      </header>
 
-      <div id="status" class="status pending">
-        Initializing browser-vite...
+      <div class="main">
+        <div class="editor-pane">
+          <div class="editor-header">Editor - Edit code here</div>
+          <div id="editor"></div>
+        </div>
+        <div class="preview-pane">
+          <div class="preview-header">
+            <span>Preview</span>
+            <span id="previewStatus"></span>
+          </div>
+          <iframe id="preview" sandbox="allow-scripts allow-same-origin"></iframe>
+        </div>
       </div>
 
-      <div>
-        <button id="runTests" disabled>Run Tests</button>
-        <button id="transformCode" disabled>Transform Sample Code</button>
-        <button id="testHMR" disabled>Test HMR</button>
-      </div>
-
-      <div id="testResults"></div>
-
-      <div id="app">
-        <p>React app will render here after transformation</p>
-      </div>
-
-      <div id="logs">
+      <div id="logs" class="logs-pane">
         <div class="log-entry info">Waiting for browser-vite to initialize...</div>
       </div>
     </div>

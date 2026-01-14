@@ -1,32 +1,173 @@
 /**
- * Browser-Vite Example Application
+ * Browser-Vite Live Editor Example
  *
- * This example demonstrates browser-vite's capabilities:
- * 1. Code transformation (TypeScript, JSX)
- * 2. Plugin system
- * 3. Module graph management
- * 4. HMR simulation
+ * Features:
+ * - CodeMirror editor for editing code
+ * - Live preview in iframe
+ * - HMR-style updates on code changes
  */
 
+import { EditorView, basicSetup } from 'codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { css } from '@codemirror/lang-css';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { EditorState } from '@codemirror/state';
 import { BrowserVite } from './browser-vite-wrapper';
+
+// Sample code templates
+const templates = {
+  react: `// React Component with Counter
+import React, { useState } from 'react';
+
+export default function App() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <div style={{
+      fontFamily: 'system-ui, sans-serif',
+      padding: '40px',
+      textAlign: 'center',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      minHeight: '100vh',
+      color: 'white'
+    }}>
+      <h1>Browser-Vite Demo</h1>
+      <p>Edit the code on the left to see live updates!</p>
+      <div style={{
+        fontSize: '48px',
+        margin: '20px 0'
+      }}>
+        {count}
+      </div>
+      <button
+        onClick={() => setCount(c => c + 1)}
+        style={{
+          padding: '12px 24px',
+          fontSize: '18px',
+          background: 'white',
+          color: '#667eea',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontWeight: 'bold'
+        }}
+      >
+        Increment
+      </button>
+      <button
+        onClick={() => setCount(0)}
+        style={{
+          padding: '12px 24px',
+          fontSize: '18px',
+          background: 'transparent',
+          color: 'white',
+          border: '2px solid white',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          marginLeft: '10px'
+        }}
+      >
+        Reset
+      </button>
+    </div>
+  );
+}
+`,
+  typescript: `// TypeScript Example
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+const users: User[] = [
+  { id: 1, name: 'Alice', email: 'alice@example.com' },
+  { id: 2, name: 'Bob', email: 'bob@example.com' },
+];
+
+function greet(user: User): string {
+  return \`Hello, \${user.name}!\`;
+}
+
+// This will be displayed in the preview
+document.body.innerHTML = \`
+  <div style="font-family: system-ui; padding: 40px; background: #1a1a2e; color: #eee; min-height: 100vh;">
+    <h1>TypeScript Demo</h1>
+    <ul>
+      \${users.map(u => \`<li>\${greet(u)} - \${u.email}</li>\`).join('')}
+    </ul>
+  </div>
+\`;
+`,
+  css: `/* CSS Example */
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card {
+  background: white;
+  border-radius: 16px;
+  padding: 40px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  text-align: center;
+  max-width: 400px;
+}
+
+.card h1 {
+  color: #667eea;
+  margin-top: 0;
+}
+
+.card p {
+  color: #666;
+  line-height: 1.6;
+}
+
+.card button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 12px 32px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+}
+`
+};
 
 // UI Elements
 const statusEl = document.getElementById('status')!;
 const logsEl = document.getElementById('logs')!;
-const appEl = document.getElementById('app')!;
-const testResultsEl = document.getElementById('testResults')!;
-const runTestsBtn = document.getElementById('runTests') as HTMLButtonElement;
-const transformCodeBtn = document.getElementById('transformCode') as HTMLButtonElement;
-const testHMRBtn = document.getElementById('testHMR') as HTMLButtonElement;
+const editorContainer = document.getElementById('editor')!;
+const previewFrame = document.getElementById('preview') as HTMLIFrameElement;
+const templateSelect = document.getElementById('templateSelect') as HTMLSelectElement;
+const runBtn = document.getElementById('runCode') as HTMLButtonElement;
+const autoRunCheckbox = document.getElementById('autoRun') as HTMLInputElement;
 
-// Logging utility
+let browserVite: BrowserVite | null = null;
+let editor: EditorView | null = null;
+let currentFileType: 'tsx' | 'ts' | 'css' = 'tsx';
+let debounceTimer: number | null = null;
+
+// Logging
 function log(message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') {
   const entry = document.createElement('div');
   entry.className = `log-entry ${type}`;
   entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
   logsEl.appendChild(entry);
   logsEl.scrollTop = logsEl.scrollHeight;
-  console.log(`[${type.toUpperCase()}]`, message);
 }
 
 function setStatus(message: string, type: 'success' | 'error' | 'pending') {
@@ -34,257 +175,252 @@ function setStatus(message: string, type: 'success' | 'error' | 'pending') {
   statusEl.className = `status ${type}`;
 }
 
-function addTestResult(name: string, passed: boolean, details?: string) {
-  const result = document.createElement('div');
-  result.className = `test-result ${passed ? 'pass' : 'fail'}`;
-  result.innerHTML = `
-    <strong>${passed ? '✓' : '✗'} ${name}</strong>
-    ${details ? `<br><small>${details}</small>` : ''}
-  `;
-  result.setAttribute('data-testid', `test-${name.toLowerCase().replace(/\s+/g, '-')}`);
-  result.setAttribute('data-passed', String(passed));
-  testResultsEl.appendChild(result);
+// Create the iframe HTML wrapper for React
+function createReactWrapper(code: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <style>
+    body { margin: 0; }
+    #root { min-height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    ${code}
+
+    // Find and render the default export
+    if (typeof App !== 'undefined') {
+      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+    } else if (typeof exports !== 'undefined' && exports.default) {
+      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(exports.default));
+    }
+  </script>
+</body>
+</html>`;
 }
 
-// Sample code to transform
-const sampleTypeScript = `
-// TypeScript code with types
-interface User {
-  id: number;
-  name: string;
-  email: string;
+// Create wrapper for plain JS/TS
+function createJSWrapper(code: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>body { margin: 0; }</style>
+</head>
+<body>
+  <script>${code}</script>
+</body>
+</html>`;
 }
 
-const greet = (user: User): string => {
-  return \`Hello, \${user.name}!\`;
-};
-
-export { greet, User };
-`;
-
-const sampleJSX = `
-// React JSX component
-import React, { useState } from 'react';
-
-export function Counter() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <div className="counter">
-      <h2>Counter: {count}</h2>
-      <button onClick={() => setCount(c => c + 1)}>
-        Increment
-      </button>
-    </div>
-  );
-}
-`;
-
-const sampleCSS = `
-.counter {
-  padding: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 10px;
-  color: white;
+// Create wrapper for CSS preview
+function createCSSWrapper(css: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>${css}</style>
+</head>
+<body>
+  <div class="card">
+    <h1>CSS Preview</h1>
+    <p>This is a preview of your CSS styles. Edit the code on the left to see changes.</p>
+    <button>Hover Me!</button>
+  </div>
+</body>
+</html>`;
 }
 
-.counter button {
-  margin-top: 10px;
-  padding: 8px 16px;
-  background: white;
-  color: #667eea;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-}
-`;
+// Transform and update preview
+async function updatePreview() {
+  if (!browserVite || !editor) return;
 
-// Initialize browser-vite
-let browserVite: BrowserVite | null = null;
+  const code = editor.state.doc.toString();
 
-async function initialize() {
   try {
-    log('Initializing browser-vite...');
-    browserVite = new BrowserVite();
-    await browserVite.init();
+    let result;
+    let html: string;
 
-    setStatus('Browser-vite initialized successfully!', 'success');
-    log('Browser-vite ready!', 'success');
+    if (currentFileType === 'css') {
+      // CSS doesn't need transformation for preview
+      html = createCSSWrapper(code);
+      log('CSS updated', 'success');
+    } else {
+      // Transform TypeScript/JSX
+      const filename = currentFileType === 'tsx' ? '/App.tsx' : '/main.ts';
+      result = await browserVite.transform(code, filename);
 
-    // Enable buttons
-    runTestsBtn.disabled = false;
-    transformCodeBtn.disabled = false;
-    testHMRBtn.disabled = false;
+      // Post-process for browser: handle imports
+      let processedCode = result.code;
 
-    // Expose for Playwright
-    (window as any).browserVite = browserVite;
-    (window as any).browserViteReady = true;
+      // Replace React imports with globals (for UMD)
+      processedCode = processedCode
+        .replace(/import\s+React.*from\s+['"]react['"];?/g, 'const React = window.React;')
+        .replace(/import\s+\{([^}]+)\}\s+from\s+['"]react['"];?/g, (_, imports) => {
+          const vars = imports.split(',').map((i: string) => i.trim());
+          return vars.map((v: string) => `const ${v} = React.${v};`).join('\n');
+        })
+        .replace(/import.*from\s+['"]react-dom\/client['"];?/g, 'const ReactDOM = window.ReactDOM;')
+        .replace(/import.*from\s+['"]react-dom['"];?/g, 'const ReactDOM = window.ReactDOM;');
+
+      // Handle exports for rendering
+      processedCode = processedCode
+        .replace(/export\s+default\s+function\s+(\w+)/g, 'function $1')
+        .replace(/export\s+default\s+/, 'const App = ')
+        .replace(/export\s+\{[^}]*\};?/g, '');
+
+      if (currentFileType === 'tsx') {
+        html = createReactWrapper(processedCode);
+      } else {
+        html = createJSWrapper(processedCode);
+      }
+
+      log(`Transformed ${filename}`, 'success');
+    }
+
+    // Update iframe
+    const blob = new Blob([html], { type: 'text/html' });
+    previewFrame.src = URL.createObjectURL(blob);
 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setStatus(`Initialization failed: ${message}`, 'error');
-    log(`Error: ${message}`, 'error');
-    (window as any).browserViteError = message;
+    log(`Transform error: ${message}`, 'error');
+
+    // Show error in preview
+    const errorHtml = `<!DOCTYPE html>
+<html>
+<head><style>
+  body {
+    font-family: monospace;
+    background: #2d1b1b;
+    color: #ff6b6b;
+    padding: 20px;
+    margin: 0;
+    min-height: 100vh;
+    box-sizing: border-box;
+  }
+  pre { white-space: pre-wrap; word-wrap: break-word; }
+</style></head>
+<body>
+  <h2>Transform Error</h2>
+  <pre>${message}</pre>
+</body>
+</html>`;
+    const blob = new Blob([errorHtml], { type: 'text/html' });
+    previewFrame.src = URL.createObjectURL(blob);
   }
 }
 
-// Test functions
-async function runAllTests() {
-  if (!browserVite) return;
+// Debounced update for auto-run
+function scheduleUpdate() {
+  if (!autoRunCheckbox.checked) return;
 
-  testResultsEl.innerHTML = '';
-  log('Running all tests...', 'info');
-
-  // Test 1: TypeScript transformation
-  try {
-    log('Test 1: TypeScript transformation...');
-    const result = await browserVite.transform(sampleTypeScript, '/test.ts');
-    const hasNoTypes = !result.code.includes(': User') && !result.code.includes(': string');
-    addTestResult('TypeScript Transform', hasNoTypes,
-      hasNoTypes ? 'Types successfully removed' : 'Types still present in output');
-    log(`TypeScript transform: ${hasNoTypes ? 'PASS' : 'FAIL'}`, hasNoTypes ? 'success' : 'error');
-  } catch (e) {
-    addTestResult('TypeScript Transform', false, String(e));
-    log(`TypeScript transform error: ${e}`, 'error');
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
   }
-
-  // Test 2: JSX transformation
-  try {
-    log('Test 2: JSX transformation...');
-    const result = await browserVite.transform(sampleJSX, '/Counter.jsx');
-    const hasJSXRuntime = result.code.includes('jsx') || result.code.includes('createElement');
-    addTestResult('JSX Transform', hasJSXRuntime,
-      hasJSXRuntime ? 'JSX compiled to function calls' : 'JSX not transformed');
-    log(`JSX transform: ${hasJSXRuntime ? 'PASS' : 'FAIL'}`, hasJSXRuntime ? 'success' : 'error');
-  } catch (e) {
-    addTestResult('JSX Transform', false, String(e));
-    log(`JSX transform error: ${e}`, 'error');
-  }
-
-  // Test 3: CSS handling
-  try {
-    log('Test 3: CSS handling...');
-    const result = await browserVite.transform(sampleCSS, '/styles.css');
-    const isProcessed = result.code.length > 0;
-    addTestResult('CSS Processing', isProcessed,
-      isProcessed ? 'CSS processed successfully' : 'CSS processing failed');
-    log(`CSS processing: ${isProcessed ? 'PASS' : 'FAIL'}`, isProcessed ? 'success' : 'error');
-  } catch (e) {
-    addTestResult('CSS Processing', false, String(e));
-    log(`CSS processing error: ${e}`, 'error');
-  }
-
-  // Test 4: Module resolution
-  try {
-    log('Test 4: Module resolution...');
-    const resolved = await browserVite.resolveId('react', '/src/main.tsx');
-    const isResolved = resolved !== null;
-    addTestResult('Module Resolution', isResolved,
-      isResolved ? `Resolved to: ${resolved?.id?.slice(0, 50)}...` : 'Failed to resolve');
-    log(`Module resolution: ${isResolved ? 'PASS' : 'FAIL'}`, isResolved ? 'success' : 'error');
-  } catch (e) {
-    addTestResult('Module Resolution', false, String(e));
-    log(`Module resolution error: ${e}`, 'error');
-  }
-
-  // Test 5: Plugin system
-  try {
-    log('Test 5: Plugin system...');
-    const pluginWorking = browserVite.hasPlugin('vite:esbuild');
-    addTestResult('Plugin System', pluginWorking,
-      pluginWorking ? 'Core plugins loaded' : 'Plugins not loaded');
-    log(`Plugin system: ${pluginWorking ? 'PASS' : 'FAIL'}`, pluginWorking ? 'success' : 'error');
-  } catch (e) {
-    addTestResult('Plugin System', false, String(e));
-    log(`Plugin system error: ${e}`, 'error');
-  }
-
-  // Test 6: Source maps
-  try {
-    log('Test 6: Source maps...');
-    const result = await browserVite.transform(sampleTypeScript, '/test.ts');
-    const hasSourceMap = result.map !== null && result.map !== undefined;
-    addTestResult('Source Maps', hasSourceMap,
-      hasSourceMap ? 'Source map generated' : 'No source map');
-    log(`Source maps: ${hasSourceMap ? 'PASS' : 'FAIL'}`, hasSourceMap ? 'success' : 'error');
-  } catch (e) {
-    addTestResult('Source Maps', false, String(e));
-    log(`Source maps error: ${e}`, 'error');
-  }
-
-  log('All tests completed!', 'success');
-
-  // Set overall result for Playwright
-  const results = testResultsEl.querySelectorAll('.test-result');
-  const allPassed = Array.from(results).every(r => r.getAttribute('data-passed') === 'true');
-  (window as any).allTestsPassed = allPassed;
+  debounceTimer = window.setTimeout(() => {
+    updatePreview();
+    debounceTimer = null;
+  }, 500);
 }
 
-async function transformSampleCode() {
-  if (!browserVite) return;
-
-  log('Transforming sample React component...');
-
-  try {
-    const result = await browserVite.transform(sampleJSX, '/Counter.tsx');
-    log('Transformation successful!', 'success');
-    log(`Output (first 200 chars): ${result.code.slice(0, 200)}...`);
-
-    // Display in app area
-    appEl.innerHTML = `
-      <h3>Transformed Code:</h3>
-      <pre style="background: #0a0a15; padding: 15px; border-radius: 5px; overflow-x: auto; font-size: 12px;">${escapeHtml(result.code)}</pre>
-    `;
-
-    (window as any).lastTransformResult = result;
-  } catch (e) {
-    log(`Transform error: ${e}`, 'error');
+// Initialize CodeMirror editor
+function initEditor(content: string, language: 'tsx' | 'ts' | 'css') {
+  if (editor) {
+    editor.destroy();
   }
+
+  const languageExtension = language === 'css'
+    ? css()
+    : javascript({ jsx: language === 'tsx', typescript: true });
+
+  editor = new EditorView({
+    state: EditorState.create({
+      doc: content,
+      extensions: [
+        basicSetup,
+        languageExtension,
+        oneDark,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            scheduleUpdate();
+          }
+        }),
+        EditorView.theme({
+          '&': { height: '100%' },
+          '.cm-scroller': { overflow: 'auto' },
+        }),
+      ],
+    }),
+    parent: editorContainer,
+  });
 }
 
-async function testHMR() {
-  if (!browserVite) return;
+// Handle template change
+function handleTemplateChange() {
+  const template = templateSelect.value as 'react' | 'typescript' | 'css';
 
-  log('Testing HMR simulation...');
-
-  try {
-    // Simulate a file change
-    const originalCode = `export const message = "Hello";`;
-    const updatedCode = `export const message = "Hello, Updated!";`;
-
-    // Transform original
-    await browserVite.transform(originalCode, '/message.ts');
-    log('Original module registered');
-
-    // Simulate update
-    const updateResult = await browserVite.handleHMRUpdate('/message.ts', updatedCode);
-    log(`HMR update result: ${updateResult ? 'Success' : 'Failed'}`, updateResult ? 'success' : 'error');
-
-    appEl.innerHTML = `
-      <h3>HMR Test Result:</h3>
-      <p>File: /message.ts</p>
-      <p>Original: <code>${originalCode}</code></p>
-      <p>Updated: <code>${updatedCode}</code></p>
-      <p>HMR Status: <strong style="color: ${updateResult ? '#81c784' : '#e57373'}">${updateResult ? 'SUCCESS' : 'FAILED'}</strong></p>
-    `;
-
-    (window as any).hmrTestPassed = updateResult;
-  } catch (e) {
-    log(`HMR error: ${e}`, 'error');
-    (window as any).hmrTestPassed = false;
+  switch (template) {
+    case 'react':
+      currentFileType = 'tsx';
+      initEditor(templates.react, 'tsx');
+      break;
+    case 'typescript':
+      currentFileType = 'ts';
+      initEditor(templates.typescript, 'ts');
+      break;
+    case 'css':
+      currentFileType = 'css';
+      initEditor(templates.css, 'css');
+      break;
   }
+
+  log(`Switched to ${template} template`, 'info');
+  updatePreview();
 }
 
-function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+// Initialize
+async function initialize() {
+  try {
+    log('Initializing browser-vite...');
+    setStatus('Initializing...', 'pending');
+
+    browserVite = new BrowserVite();
+    await browserVite.init();
+
+    setStatus('Ready!', 'success');
+    log('Browser-vite ready!', 'success');
+
+    // Enable UI
+    runBtn.disabled = false;
+    templateSelect.disabled = false;
+    autoRunCheckbox.disabled = false;
+
+    // Initialize editor with React template
+    initEditor(templates.react, 'tsx');
+
+    // Initial preview
+    await updatePreview();
+
+    // Expose for debugging
+    (window as any).browserVite = browserVite;
+    (window as any).editor = editor;
+
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Error: ${message}`, 'error');
+    log(`Initialization failed: ${message}`, 'error');
+  }
 }
 
 // Event listeners
-runTestsBtn.addEventListener('click', runAllTests);
-transformCodeBtn.addEventListener('click', transformSampleCode);
-testHMRBtn.addEventListener('click', testHMR);
+runBtn.addEventListener('click', updatePreview);
+templateSelect.addEventListener('change', handleTemplateChange);
 
-// Initialize on load
+// Start
 initialize();
