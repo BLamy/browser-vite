@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   // Base path for GitHub Pages - uses repo name from environment or defaults to /
-  base: process.env.GITHUB_PAGES ? '/browser-vite/' : '/',
+  base: process.env.GITHUB_PAGES ? '/browser-vite-6/' : '/',
   server: {
     port: 5173,
   },
