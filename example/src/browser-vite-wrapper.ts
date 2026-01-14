@@ -123,9 +123,9 @@ export default css;
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    // Initialize esbuild-wasm
+    // Initialize esbuild-wasm - use unpkg with matching version
     await esbuild.initialize({
-      wasmURL: 'https://unpkg.com/esbuild-wasm@0.24.0/esbuild.wasm',
+      wasmURL: 'https://unpkg.com/esbuild-wasm@0.24.2/esbuild.wasm',
     });
 
     this.initialized = true;
