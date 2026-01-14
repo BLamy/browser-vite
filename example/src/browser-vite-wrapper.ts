@@ -11,7 +11,7 @@
  * the API and test the transformation pipeline.
  */
 
-import { transform } from 'esbuild';
+import * as esbuild from 'esbuild-wasm';
 
 export interface TransformResult {
   code: string;
@@ -49,7 +49,7 @@ export class BrowserVite {
         name: 'vite:esbuild',
         async transform(code: string, id: string) {
           if (id.endsWith('.ts') || id.endsWith('.tsx')) {
-            const result = await transform(code, {
+            const result = await esbuild.transform(code, {
               loader: id.endsWith('.tsx') ? 'tsx' : 'ts',
               sourcemap: true,
               target: 'es2020',
@@ -66,7 +66,7 @@ export class BrowserVite {
         name: 'vite:jsx',
         async transform(code: string, id: string) {
           if (id.endsWith('.jsx')) {
-            const result = await transform(code, {
+            const result = await esbuild.transform(code, {
               loader: 'jsx',
               sourcemap: true,
               target: 'es2020',
@@ -123,14 +123,10 @@ export default css;
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    // In real implementation, this would:
-    // 1. Load the browser-vite bundle
-    // 2. Initialize the virtual file system
-    // 3. Set up the plugin container
-    // 4. Initialize the module graph
-
-    // Simulate async initialization
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Initialize esbuild-wasm
+    await esbuild.initialize({
+      wasmURL: 'https://unpkg.com/esbuild-wasm@0.24.0/esbuild.wasm',
+    });
 
     this.initialized = true;
     console.log('[BrowserVite] Initialized with plugins:', this.plugins.map(p => p.name));

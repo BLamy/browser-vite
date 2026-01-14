@@ -10,7 +10,7 @@ export default defineConfig({
     target: 'es2020',
   },
   optimizeDeps: {
-    include: ['esbuild'],
+    include: ['esbuild-wasm'],
   },
   // Ensure esbuild-wasm is available for browser transform
   resolve: {
