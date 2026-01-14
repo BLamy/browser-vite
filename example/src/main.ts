@@ -1070,47 +1070,8 @@ const devtoolsResizeHandle = document.getElementById('devtoolsResizeHandle')!;
 let devtoolsOpen = false;
 let devtoolsInitialized = false;
 
-// Create the DevTools frontend HTML that will be loaded in the iframe
-function createDevtoolsHTML(): string {
-  // We need to create a page that loads chii's DevTools frontend
-  // and bridges the CDP communication via postMessage
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; }
-    iframe { width: 100%; height: 100%; border: none; }
-  </style>
-</head>
-<body>
-  <iframe id="chii" src="https://chii.liriliri.io/front_end/chii_app.html#?embedded=${encodeURIComponent(window.location.origin)}"></iframe>
-  <script>
-    const chiiFrame = document.getElementById('chii');
-    const parentOrigin = '${window.location.origin}';
-    const chiiOrigin = 'https://chii.liriliri.io';
-
-    // Forward messages from parent (CDP responses) to chii
-    window.addEventListener('message', function(event) {
-      if (event.origin === parentOrigin && event.data && event.data.type === 'cdp-to-devtools') {
-        chiiFrame.contentWindow.postMessage(event.data.message, chiiOrigin);
-      }
-    });
-
-    // Forward messages from chii (CDP commands) to parent
-    window.addEventListener('message', function(event) {
-      if (event.origin === chiiOrigin && event.data && typeof event.data === 'string') {
-        window.parent.postMessage({ type: 'cdp-from-devtools', message: event.data }, parentOrigin);
-      }
-    });
-
-    // Notify parent that DevTools bridge is ready
-    window.parent.postMessage({ type: 'devtools-bridge-ready' }, parentOrigin);
-  </script>
-</body>
-</html>`;
-}
+// Chii DevTools URL with embedded mode pointing to our origin
+const CHII_DEVTOOLS_URL = `https://chii.liriliri.io/front_end/chii_app.html#?embedded=${encodeURIComponent(window.location.origin)}`;
 
 function toggleDevtools() {
   if (!cdpReady) {
@@ -1131,36 +1092,37 @@ function toggleDevtools() {
 
 function initDevtoolsFrame() {
   log('Initializing embedded DevTools...', 'info');
-  const html = createDevtoolsHTML();
-  const blob = new Blob([html], { type: 'text/html' });
-  devtoolsFrame.src = URL.createObjectURL(blob);
+  // Load chii directly from its CDN - no intermediate iframe needed
+  devtoolsFrame.src = CHII_DEVTOOLS_URL;
   devtoolsInitialized = true;
 }
 
-// Handle messages from DevTools iframe bridge
+// Handle messages from chii DevTools (CDP commands)
 function handleDevtoolsMessage(event: MessageEvent) {
-  // Handle DevTools bridge ready
-  if (event.data?.type === 'devtools-bridge-ready') {
-    log('DevTools bridge ready', 'success');
-    return;
-  }
+  // Only accept messages from chii's origin
+  if (event.origin !== 'https://chii.liriliri.io') return;
 
-  // Forward CDP commands from DevTools to preview iframe
-  if (event.data?.type === 'cdp-from-devtools') {
-    previewFrame.contentWindow?.postMessage(
-      { type: 'cdp-command', message: event.data.message },
-      '*'
-    );
+  // Chii sends CDP commands as JSON strings
+  if (event.data && typeof event.data === 'string') {
+    try {
+      const parsed = JSON.parse(event.data);
+      if (parsed.method || parsed.id !== undefined) {
+        // Forward CDP command to preview iframe (chobitsu)
+        previewFrame.contentWindow?.postMessage(
+          { type: 'cdp-command', message: event.data },
+          '*'
+        );
+      }
+    } catch {
+      // Not JSON, ignore
+    }
   }
 }
 
-// Forward CDP responses to DevTools iframe
+// Forward CDP responses to chii DevTools iframe
 function forwardCDPToDevtools(message: string) {
-  if (devtoolsOpen && devtoolsInitialized) {
-    devtoolsFrame.contentWindow?.postMessage(
-      { type: 'cdp-to-devtools', message },
-      '*'
-    );
+  if (devtoolsOpen && devtoolsInitialized && devtoolsFrame.contentWindow) {
+    devtoolsFrame.contentWindow.postMessage(message, 'https://chii.liriliri.io');
   }
 }
 
@@ -1192,7 +1154,7 @@ document.addEventListener('mouseup', () => {
   }
 });
 
-// Listen for messages from DevTools iframe
+// Listen for messages from chii DevTools
 window.addEventListener('message', handleDevtoolsMessage);
 
 // DevTools toggle button
