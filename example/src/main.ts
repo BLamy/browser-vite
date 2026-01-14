@@ -260,23 +260,20 @@ function createHMRRuntime(): string {
         hmrLog('Evaluating new module code...');
 
         // Create a new function scope for the code
-        const moduleExports = {};
+        // Don't pass React as param since code already has: const React = window.React
         const moduleCode = code + '\\n; return typeof App !== "undefined" ? App : null;';
 
         try {
-          const AppComponent = new Function('React', 'exports', moduleCode)(React, moduleExports);
+          const AppComponent = new Function(moduleCode)();
 
           if (AppComponent) {
             currentApp = AppComponent;
             renderApp(currentApp);
             hmrLog('HMR update successful - component re-rendered');
-          } else if (moduleExports.default) {
-            currentApp = moduleExports.default;
-            renderApp(currentApp);
-            hmrLog('HMR update successful - default export re-rendered');
           } else {
-            // Non-React code, just execute it
-            hmrLog('Non-component code executed');
+            // Non-React code or no App export, just execute for side effects
+            new Function(code)();
+            hmrLog('Code executed (no App component found)');
           }
         } catch (evalErr) {
           throw new Error('Eval error: ' + evalErr.message);
