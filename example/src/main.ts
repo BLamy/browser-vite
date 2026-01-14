@@ -261,7 +261,7 @@ function createHMRRuntime(): string {
 
         // Create a new function scope for the code
         // Don't pass React as param since code already has: const React = window.React
-        const moduleCode = code + '\\n; return typeof App !== "undefined" ? App : null;';
+        const moduleCode = code + '\\nreturn typeof App !== "undefined" ? App : null;';
 
         try {
           const AppComponent = new Function(moduleCode)();
