@@ -12,3 +12,5 @@ explorations
 *.cpuprofile
 /.vscode/
 /packages/playground/ssr-deps/node-addon/build/
+playwright-report
+test-results

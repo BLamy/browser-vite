@@ -9,6 +9,7 @@
  * - Module resolution between files
  */
 
+import './index.css';
 import { EditorView, basicSetup } from 'codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
@@ -231,7 +232,6 @@ function initFileSystem() {
 // =============================================================================
 
 const statusEl = document.getElementById('status')!;
-const logsEl = document.getElementById('logs')!;
 const editorContainer = document.getElementById('editor')!;
 const previewFrame = document.getElementById('preview') as HTMLIFrameElement;
 const runBtn = document.getElementById('runCode') as HTMLButtonElement;
@@ -255,24 +255,18 @@ let iframeReady = false;
 // =============================================================================
 
 function log(message: string, type: 'info' | 'success' | 'error' | 'warn' | 'hmr' = 'info') {
-  const entry = document.createElement('div');
-  const timestamp = new Date().toLocaleTimeString('en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
-  entry.className = `log-entry ${type}`;
-  entry.textContent = `[${timestamp}] ${type === 'hmr' ? '[HMR] ' : ''}${message}`;
-  logsEl.appendChild(entry);
-  logsEl.scrollTop = logsEl.scrollHeight;
-  console.log(`[${type.toUpperCase()}]`, message);
+  const prefix = type === 'hmr' ? '[HMR]' : `[${type.toUpperCase()}]`;
+  console.log(prefix, message);
 }
 
 function setStatus(message: string, type: 'success' | 'error' | 'pending') {
   statusEl.textContent = message;
-  statusEl.className = `status ${type}`;
+  const statusStyles: Record<string, string> = {
+    success: 'bg-emerald-900/50 border-emerald-700',
+    error: 'bg-red-900/50 border-red-700',
+    pending: 'bg-amber-900/50 border-amber-700',
+  };
+  statusEl.className = `px-3 py-1.5 rounded font-mono text-xs border ${statusStyles[type]}`;
 }
 
 // =============================================================================
@@ -335,12 +329,12 @@ function renderFileTree() {
   function renderNode(node: FileTreeNode, container: HTMLElement) {
     if (node.isFolder) {
       const folderEl = document.createElement('div');
-      folderEl.className = 'folder-item';
-      folderEl.innerHTML = `<span class="folder-icon">📁</span>${node.name}`;
+      folderEl.className = 'flex items-center px-3 py-1.5 cursor-pointer text-[13px] text-[hsl(var(--muted-foreground))] font-medium hover:bg-[hsl(var(--sidebar-accent))]';
+      folderEl.innerHTML = `<span class="mr-2">📁</span>${node.name}`;
       container.appendChild(folderEl);
 
       const contentsEl = document.createElement('div');
-      contentsEl.className = 'folder-contents';
+      contentsEl.className = 'pl-3';
       container.appendChild(contentsEl);
 
       if (node.children) {
@@ -356,14 +350,14 @@ function renderFileTree() {
       }
     } else {
       const fileEl = document.createElement('div');
-      fileEl.className = 'file-item';
-      if (node.path === currentFile) {
-        fileEl.classList.add('active');
-      }
-      if (modifiedFiles.has(node.path)) {
-        fileEl.classList.add('modified');
-      }
-      fileEl.innerHTML = `<span class="file-icon">${getFileIcon(node.name)}</span>${node.name}`;
+      const isActive = node.path === currentFile;
+      const isModified = modifiedFiles.has(node.path);
+      const baseClasses = 'flex items-center px-3 py-1.5 cursor-pointer text-[13px] border-l-2 hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--foreground))]';
+      const activeClasses = isActive
+        ? 'bg-[hsl(var(--sidebar-accent))] text-[hsl(var(--foreground))] border-l-[hsl(var(--primary))]'
+        : 'text-[hsl(var(--sidebar-foreground))] border-l-transparent';
+      fileEl.className = `${baseClasses} ${activeClasses}`;
+      fileEl.innerHTML = `<span class="w-4 h-4 mr-2 text-sm">${getFileIcon(node.name)}</span>${node.name}${isModified ? '<span class="w-1.5 h-1.5 bg-amber-500 rounded-full ml-auto"></span>' : ''}`;
       fileEl.addEventListener('click', () => openFile(node.path));
       container.appendChild(fileEl);
     }
@@ -656,6 +650,7 @@ function createHMRRuntime(): string {
   <meta charset="UTF-8">
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/chobitsu"></script>
   <style>
     body { margin: 0; }
     #root { min-height: 100vh; }
@@ -682,6 +677,25 @@ function createHMRRuntime(): string {
 
     function hmrLog(msg) {
       window.parent.postMessage({ type: 'hmr-log', message: msg }, '*');
+    }
+
+    // Initialize Chobitsu CDP
+    function initChobitsu() {
+      if (typeof chobitsu === 'undefined') {
+        hmrLog('Chobitsu not loaded, skipping CDP initialization');
+        return;
+      }
+
+      // Set up message handler to forward CDP responses to parent
+      chobitsu.setOnMessage(function(message) {
+        window.parent.postMessage({
+          type: 'cdp-response',
+          message: message
+        }, '*');
+      });
+
+      hmrLog('Chobitsu CDP initialized');
+      window.parent.postMessage({ type: 'cdp-ready' }, '*');
     }
 
     function renderApp(AppComponent) {
@@ -734,10 +748,19 @@ function createHMRRuntime(): string {
       if (event.data && event.data.type === 'hmr-update') {
         handleHMRUpdate(event.data.code, event.data.fileType);
       }
+      // Handle CDP commands from parent
+      if (event.data && event.data.type === 'cdp-command') {
+        if (typeof chobitsu !== 'undefined') {
+          chobitsu.sendRawMessage(event.data.message);
+        }
+      }
     });
 
     window.parent.postMessage({ type: 'hmr-ready' }, '*');
     hmrLog('HMR Runtime initialized');
+
+    // Initialize Chobitsu after a short delay to ensure it's loaded
+    setTimeout(initChobitsu, 100);
   </script>
 </body>
 </html>`;
@@ -821,6 +844,81 @@ async function updatePreview() {
 }
 
 // =============================================================================
+// CDP (Chrome DevTools Protocol) via Chobitsu
+// =============================================================================
+
+let cdpReady = false;
+let cdpMessageId = 0;
+const cdpCallbacks: Map<number, (result: any) => void> = new Map();
+const cdpEventListeners: Map<string, Set<(params: any) => void>> = new Map();
+
+// Forward declaration for DevTools CDP forwarding
+declare function forwardCDPToDevtools(message: string): void;
+
+// Send a CDP command to the iframe
+function sendCDPCommand(method: string, params: Record<string, any> = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if (!cdpReady) {
+      reject(new Error('CDP not ready'));
+      return;
+    }
+
+    const id = ++cdpMessageId;
+    cdpCallbacks.set(id, resolve);
+
+    const message = JSON.stringify({ id, method, params });
+    previewFrame.contentWindow?.postMessage({ type: 'cdp-command', message }, '*');
+
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      if (cdpCallbacks.has(id)) {
+        cdpCallbacks.delete(id);
+        reject(new Error(`CDP command timed out: ${method}`));
+      }
+    }, 10000);
+  });
+}
+
+// Subscribe to CDP events
+function onCDPEvent(eventName: string, callback: (params: any) => void) {
+  if (!cdpEventListeners.has(eventName)) {
+    cdpEventListeners.set(eventName, new Set());
+  }
+  cdpEventListeners.get(eventName)!.add(callback);
+
+  // Return unsubscribe function
+  return () => {
+    cdpEventListeners.get(eventName)?.delete(callback);
+  };
+}
+
+// Handle CDP response from iframe
+function handleCDPResponse(message: string) {
+  try {
+    const parsed = JSON.parse(message);
+
+    // Handle response to a command
+    if (parsed.id !== undefined) {
+      const callback = cdpCallbacks.get(parsed.id);
+      if (callback) {
+        cdpCallbacks.delete(parsed.id);
+        callback(parsed.result || parsed.error);
+      }
+    }
+
+    // Handle event
+    if (parsed.method) {
+      const listeners = cdpEventListeners.get(parsed.method);
+      if (listeners) {
+        listeners.forEach((cb) => cb(parsed.params));
+      }
+    }
+  } catch (e) {
+    log(`CDP parse error: ${e}`, 'error');
+  }
+}
+
+// =============================================================================
 // Event Handlers
 // =============================================================================
 
@@ -831,6 +929,13 @@ window.addEventListener('message', (event) => {
     updatePreview();
   } else if (event.data?.type === 'hmr-log') {
     log(`iframe: ${event.data.message}`, 'hmr');
+  } else if (event.data?.type === 'cdp-ready') {
+    cdpReady = true;
+    log('CDP (Chobitsu) ready - Click DevTools to open Chrome DevTools', 'success');
+  } else if (event.data?.type === 'cdp-response') {
+    handleCDPResponse(event.data.message);
+    // Forward CDP responses to DevTools iframe if open
+    forwardCDPToDevtools(event.data.message);
   }
 });
 
@@ -856,13 +961,15 @@ function scheduleUpdate() {
 
 // New file modal handlers
 function showNewFileModal() {
-  newFileModal.classList.add('visible');
+  newFileModal.classList.remove('hidden');
+  newFileModal.classList.add('flex');
   newFileNameInput.value = '';
   newFileNameInput.focus();
 }
 
 function hideNewFileModal() {
-  newFileModal.classList.remove('visible');
+  newFileModal.classList.add('hidden');
+  newFileModal.classList.remove('flex');
 }
 
 function createNewFile() {
@@ -928,15 +1035,127 @@ async function initialize() {
     // Initialize iframe with HMR runtime
     initIframe();
 
-    // Expose for debugging
+    // Expose for debugging and external use
     (window as any).browserVite = browserVite;
     (window as any).fileSystem = fileSystem;
+
+    // Expose CDP API
+    (window as any).cdp = {
+      send: sendCDPCommand,
+      on: onCDPEvent,
+      get ready() {
+        return cdpReady;
+      },
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Error: ${message}`, 'error');
     log(`Initialization failed: ${message}`, 'error');
   }
 }
+
+// =============================================================================
+// DevTools - Embedded Chrome DevTools Frontend via Chii
+// =============================================================================
+
+const devtoolsToggle = document.getElementById('devtoolsToggle')!;
+const devtoolsPanel = document.getElementById('devtoolsPanel')!;
+const devtoolsFrame = document.getElementById('devtoolsFrame') as HTMLIFrameElement;
+const devtoolsResizeHandle = document.getElementById('devtoolsResizeHandle')!;
+
+let devtoolsOpen = false;
+let devtoolsInitialized = false;
+
+// Chii DevTools URL with embedded mode pointing to our origin
+const CHII_DEVTOOLS_URL = `https://chii.liriliri.io/front_end/chii_app.html#?embedded=${encodeURIComponent(window.location.origin)}`;
+
+function toggleDevtools() {
+  if (!cdpReady) {
+    log('Cannot open DevTools: CDP not ready', 'error');
+    return;
+  }
+
+  devtoolsOpen = !devtoolsOpen;
+  devtoolsPanel.classList.toggle('hidden', !devtoolsOpen);
+  devtoolsPanel.classList.toggle('block', devtoolsOpen);
+  devtoolsToggle.classList.toggle('bg-[hsl(var(--primary))]', devtoolsOpen);
+
+  if (devtoolsOpen && !devtoolsInitialized) {
+    initDevtoolsFrame();
+  }
+
+  log(devtoolsOpen ? 'DevTools panel opened' : 'DevTools panel closed', 'info');
+}
+
+function initDevtoolsFrame() {
+  log('Initializing embedded DevTools...', 'info');
+  // Load chii directly from its CDN - no intermediate iframe needed
+  devtoolsFrame.src = CHII_DEVTOOLS_URL;
+  devtoolsInitialized = true;
+}
+
+// Handle messages from chii DevTools (CDP commands)
+function handleDevtoolsMessage(event: MessageEvent) {
+  // Only accept messages from chii's origin
+  if (event.origin !== 'https://chii.liriliri.io') return;
+
+  // Chii sends CDP commands as JSON strings
+  if (event.data && typeof event.data === 'string') {
+    try {
+      const parsed = JSON.parse(event.data);
+      if (parsed.method || parsed.id !== undefined) {
+        // Forward CDP command to preview iframe (chobitsu)
+        previewFrame.contentWindow?.postMessage(
+          { type: 'cdp-command', message: event.data },
+          '*'
+        );
+      }
+    } catch {
+      // Not JSON, ignore
+    }
+  }
+}
+
+// Forward CDP responses to chii DevTools iframe
+function forwardCDPToDevtools(message: string) {
+  if (devtoolsOpen && devtoolsInitialized && devtoolsFrame.contentWindow) {
+    devtoolsFrame.contentWindow.postMessage(message, 'https://chii.liriliri.io');
+  }
+}
+
+// DevTools panel resize functionality
+let isResizing = false;
+let startY = 0;
+let startHeight = 0;
+
+devtoolsResizeHandle.addEventListener('mousedown', (e) => {
+  isResizing = true;
+  startY = e.clientY;
+  startHeight = devtoolsPanel.offsetHeight;
+  document.body.style.cursor = 'ns-resize';
+  document.body.style.userSelect = 'none';
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isResizing) return;
+  const deltaY = startY - e.clientY;
+  const newHeight = Math.min(Math.max(150, startHeight + deltaY), window.innerHeight - 200);
+  devtoolsPanel.style.height = `${newHeight}px`;
+});
+
+document.addEventListener('mouseup', () => {
+  if (isResizing) {
+    isResizing = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+});
+
+// Listen for messages from chii DevTools
+window.addEventListener('message', handleDevtoolsMessage);
+
+// DevTools toggle button
+devtoolsToggle.addEventListener('click', toggleDevtools);
 
 // Event listeners
 runBtn.addEventListener('click', () => {
