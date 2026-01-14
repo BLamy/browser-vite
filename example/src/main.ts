@@ -346,7 +346,7 @@ function processCodeForBrowser(code: string): string {
 
   // If there was a named function, add App assignment at the end
   if (funcName) {
-    processedCode += `\\nvar App = ${funcName};`;
+    processedCode += `\nvar App = ${funcName};`;
   }
 
   return processedCode;
