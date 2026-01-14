@@ -387,6 +387,11 @@ async function updatePreview() {
       log(`Code processed for browser (${processedCode.length} chars)`, 'hmr');
     }
 
+    // Debug: log the processed code
+    console.log('=== PROCESSED CODE ===');
+    console.log(processedCode);
+    console.log('=== END PROCESSED CODE ===');
+
     // Send to iframe via postMessage (HMR style)
     if (iframeReady) {
       log(`Sending HMR update #${updateId} to iframe...`, 'hmr');
