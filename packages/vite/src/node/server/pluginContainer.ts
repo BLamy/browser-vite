@@ -49,8 +49,6 @@ import {
   TransformResult
 } from 'rollup'
 import * as acorn from 'acorn'
-import acornClassFields from 'acorn-class-fields'
-import acornStaticClassFeatures from 'acorn-static-class-features'
 import { RawSourceMap } from '@ampproject/remapping/dist/types/types'
 import { combineSourcemaps } from '../utils'
 import MagicString from 'magic-string'
@@ -67,7 +65,7 @@ import {
   timeFrom
 } from '../utils'
 import { FS_PREFIX } from '../constants'
-import chalk from 'chalk'
+import colors from 'picocolors'
 import { ResolvedConfig } from '../config'
 import { buildErrorMessage } from './middlewares/error'
 import { ModuleGraph } from './moduleGraph'
@@ -124,10 +122,8 @@ type PluginContext = Omit<
   | 'load'
 >
 
-export let parser = acorn.Parser.extend(
-  acornClassFields,
-  acornStaticClassFeatures
-)
+// Acorn 8.x includes class fields support natively
+export let parser = acorn.Parser
 
 export async function createPluginContainer(
   { plugins, logger, root, build: { rollupOptions } }: ResolvedConfig,
@@ -149,19 +145,19 @@ export async function createPluginContainer(
 
   const watchFiles = new Set<string>()
 
-  // get rollup version
+  // get rollup version - updated for Rollup 4
   const minimalContext: MinimalPluginContext = {
     meta: {
-      rollupVersion: '2.38.5',
+      rollupVersion: '4.28.0',
       watchMode: true
     }
   }
 
   function warnIncompatibleMethod(method: string, plugin: string) {
     logger.warn(
-      chalk.cyan(`[plugin:${plugin}] `) +
-        chalk.yellow(
-          `context method ${chalk.bold(
+      colors.cyan(`[plugin:${plugin}] `) +
+        colors.yellow(
+          `context method ${colors.bold(
             `${method}()`
           )} is not supported in serve mode. This plugin is likely not vite-compatible.`
         )
@@ -235,10 +231,15 @@ export async function createPluginContainer(
     async resolve(
       id: string,
       importer?: string,
-      options?: { skipSelf?: boolean }
+      options?: {
+        skipSelf?: boolean
+        attributes?: Record<string, string>  // Rollup 4: renamed from assertions
+      }
     ) {
+      // Rollup 4: skipSelf defaults to true
+      const skipSelf = options?.skipSelf !== false
       let skip: Set<Plugin> | undefined
-      if (options?.skipSelf && this._activePlugin) {
+      if (skipSelf && this._activePlugin) {
         skip = new Set(this._resolveSkips)
         skip.add(this._activePlugin)
       }
@@ -288,7 +289,7 @@ export async function createPluginContainer(
       const err = formatError(e, position, this)
       const msg = buildErrorMessage(
         err,
-        [chalk.yellow(`warning: ${err.message}`)],
+        [colors.yellow(`warning: ${err.message}`)],
         false
       )
       logger.warn(msg, {
@@ -330,7 +331,7 @@ export async function createPluginContainer(
           errLocation = numberToPos(ctx._activeCode, pos)
         } catch (err2) {
           logger.error(
-            chalk.red(
+            colors.red(
               `Error in error handler:\n${err2.stack || err2.message}\n`
             ),
             // print extra newline to separate the two errors
@@ -514,7 +515,7 @@ export async function createPluginContainer(
         if (!seenResolves[key]) {
           seenResolves[key] = true
           debugResolve(
-            `${timeFrom(resolveStart)} ${chalk.cyan(rawId)} -> ${chalk.dim(id)}`
+            `${timeFrom(resolveStart)} ${colors.cyan(rawId)} -> ${colors.dim(id)}`
           )
         }
       }

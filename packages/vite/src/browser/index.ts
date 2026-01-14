@@ -1,5 +1,20 @@
 export * from './config'
 
+// Environment API (Vite 6)
+export {
+  createBrowserEnvironment,
+  shouldApplyPlugin,
+  filterPluginsForEnvironment,
+  getDefaultBrowserEnvironment,
+  BROWSER_ENVIRONMENT_NAME
+} from './environment'
+export type {
+  DevEnvironment,
+  EnvironmentMode,
+  EnvironmentOptions,
+  EnvironmentMeta
+} from './environment'
+
 export { isCSSRequest, isDirectCSSRequest } from '../node/plugins/css'
 export { handleFileAddUnlink, handleHMRUpdate } from './server/hmr'
 export { scanImports } from '../node/optimizer/scan'
@@ -12,12 +27,14 @@ export {
   generateCodeFrame,
   posToNumber
 } from '../node/utils'
-export { ModuleGraph } from '../node/server/moduleGraph'
+export { ModuleGraph, ModuleNode } from '../node/server/moduleGraph'
 export { CLIENT_DIR, ENV_ENTRY, CLIENT_ENTRY } from '../node/constants'
 export { transformWithEsbuild } from '../node/plugins/esbuild'
 export { createDevHtmlTransformFn } from '../node/server/middlewares/indexHtml'
 export { createPluginContainer } from '../node/server/pluginContainer'
+export type { PluginContainer } from '../node/server/pluginContainer'
 export { transformRequest } from '../node/server/transformRequest'
+export type { TransformResult } from '../node/server/transformRequest'
 export { createMissingImporterRegisterFn } from '../node/optimizer/registerMissing'
 export { ssrTransform } from '../node/ssr/ssrTransform'
 export { ssrLoadModule } from './ssr/ssrModuleLoader'
