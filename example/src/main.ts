@@ -858,6 +858,9 @@ let cdpMessageId = 0;
 const cdpCallbacks: Map<number, (result: any) => void> = new Map();
 const cdpEventListeners: Map<string, Set<(params: any) => void>> = new Map();
 
+// DevTools window reference (for forwarding CDP messages)
+let devtoolsWindow: Window | null = null;
+
 // Send a CDP command to the iframe
 function sendCDPCommand(method: string, params: Record<string, any> = {}): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -934,9 +937,17 @@ window.addEventListener('message', (event) => {
     log(`iframe: ${event.data.message}`, 'hmr');
   } else if (event.data?.type === 'cdp-ready') {
     cdpReady = true;
-    log('CDP (Chobitsu) ready', 'success');
+    log('CDP (Chobitsu) ready - Click DevTools to open Chrome DevTools', 'success');
   } else if (event.data?.type === 'cdp-response') {
     handleCDPResponse(event.data.message);
+    // Forward CDP responses to DevTools window if open
+    if (devtoolsWindow && !devtoolsWindow.closed) {
+      try {
+        devtoolsWindow.postMessage(event.data.message, '*');
+      } catch {
+        // Window might be closed or cross-origin issues
+      }
+    }
   }
 });
 
@@ -1054,196 +1065,81 @@ async function initialize() {
 }
 
 // =============================================================================
-// DevTools Panel
+// DevTools - Full Chrome DevTools Frontend via Chii
 // =============================================================================
 
-const devtoolsPane = document.getElementById('devtoolsPane')!;
 const devtoolsToggle = document.getElementById('devtoolsToggle')!;
-const devtoolsTabs = document.querySelectorAll('.devtools-tab');
-const devtoolsConsole = document.getElementById('devtoolsConsole')!;
-const devtoolsElements = document.getElementById('devtoolsElements')!;
-const consoleOutput = document.getElementById('consoleOutput')!;
-const consoleInput = document.getElementById('consoleInput') as HTMLInputElement;
-const domTree = document.getElementById('domTree')!;
 
-let devtoolsOpen = false;
+// Chii's DevTools frontend URL - use CDN for easy access
+const DEVTOOLS_URL = 'https://chii.liriliri.io/front_end/chii_app.html';
 
-function toggleDevtools() {
-  devtoolsOpen = !devtoolsOpen;
-  devtoolsPane.classList.toggle('visible', devtoolsOpen);
-  devtoolsToggle.classList.toggle('active', devtoolsOpen);
-
-  if (devtoolsOpen && cdpReady) {
-    // Enable Console domain to receive console messages
-    sendCDPCommand('Console.enable').catch(() => {});
-    sendCDPCommand('Runtime.enable').catch(() => {});
-
-    // Load initial DOM
-    loadDOMTree();
-  }
-}
-
-function switchDevtoolsTab(tabName: string) {
-  devtoolsTabs.forEach((tab) => {
-    tab.classList.toggle('active', tab.getAttribute('data-tab') === tabName);
-  });
-  devtoolsConsole.style.display = tabName === 'console' ? 'block' : 'none';
-  devtoolsElements.style.display = tabName === 'elements' ? 'block' : 'none';
-
-  if (tabName === 'elements') {
-    loadDOMTree();
-  }
-}
-
-function addConsoleEntry(type: 'log' | 'warn' | 'error' | 'info', message: string) {
-  const entry = document.createElement('div');
-  entry.className = `console-entry ${type}`;
-
-  const icons: Record<string, string> = {
-    log: '○',
-    info: 'ℹ',
-    warn: '⚠',
-    error: '✕',
-  };
-
-  entry.innerHTML = `
-    <span class="console-entry-icon">${icons[type] || '○'}</span>
-    <span class="console-entry-message">${escapeHtml(message)}</span>
-  `;
-  consoleOutput.appendChild(entry);
-  consoleOutput.scrollTop = consoleOutput.scrollHeight;
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-async function evaluateInConsole(expression: string) {
+function openDevtools() {
   if (!cdpReady) {
-    addConsoleEntry('error', 'CDP not ready');
+    log('Cannot open DevTools: CDP not ready', 'error');
     return;
   }
 
-  addConsoleEntry('info', `> ${expression}`);
-
-  try {
-    const result = await sendCDPCommand('Runtime.evaluate', {
-      expression,
-      returnByValue: true,
-    });
-
-    if (result.exceptionDetails) {
-      addConsoleEntry('error', result.exceptionDetails.text || 'Error');
-    } else if (result.result) {
-      const value = result.result.value !== undefined
-        ? JSON.stringify(result.result.value, null, 2)
-        : result.result.description || result.result.type;
-      addConsoleEntry('log', value);
-    }
-  } catch (err) {
-    addConsoleEntry('error', String(err));
-  }
-}
-
-async function loadDOMTree() {
-  if (!cdpReady) {
-    domTree.innerHTML = '<span class="dom-text">CDP not ready</span>';
+  // Check if DevTools window is already open
+  if (devtoolsWindow && !devtoolsWindow.closed) {
+    devtoolsWindow.focus();
     return;
   }
 
-  try {
-    const result = await sendCDPCommand('DOM.getDocument', { depth: -1 });
-    if (result && result.root) {
-      domTree.innerHTML = '';
-      renderDOMNode(result.root, domTree);
-    }
-  } catch (err) {
-    domTree.innerHTML = `<span class="dom-text">Error loading DOM: ${err}</span>`;
+  // Open DevTools in a popup window with embedded mode
+  const embeddedOrigin = encodeURIComponent(window.location.origin);
+  const devtoolsUrl = `${DEVTOOLS_URL}#?embedded=${embeddedOrigin}`;
+
+  devtoolsWindow = window.open(
+    devtoolsUrl,
+    'browser-vite-devtools',
+    'width=1200,height=800,menubar=no,toolbar=no,location=no,status=no'
+  );
+
+  if (devtoolsWindow) {
+    devtoolsToggle.classList.add('active');
+    log('DevTools window opened', 'success');
+
+    // Monitor when the window is closed
+    const checkClosed = setInterval(() => {
+      if (devtoolsWindow?.closed) {
+        clearInterval(checkClosed);
+        devtoolsWindow = null;
+        devtoolsToggle.classList.remove('active');
+        log('DevTools window closed', 'info');
+      }
+    }, 500);
+  } else {
+    log('Failed to open DevTools window (popup blocked?)', 'error');
   }
 }
 
-function renderDOMNode(node: any, container: HTMLElement, depth = 0) {
-  if (depth > 10) return; // Prevent infinite recursion
+// Handle messages from DevTools window
+function handleDevtoolsMessage(event: MessageEvent) {
+  // Only accept messages from chii's origin
+  if (!event.origin.includes('chii.liriliri.io')) return;
 
-  const nodeEl = document.createElement('div');
-  nodeEl.className = 'dom-node';
-  nodeEl.style.paddingLeft = `${depth * 12}px`;
-
-  if (node.nodeType === 1) {
-    // Element node
-    let html = `<span class="dom-tag">&lt;${node.localName}</span>`;
-
-    if (node.attributes && node.attributes.length > 0) {
-      for (let i = 0; i < node.attributes.length; i += 2) {
-        html += ` <span class="dom-attr-name">${node.attributes[i]}</span>=<span class="dom-attr-value">"${escapeHtml(node.attributes[i + 1])}"</span>`;
+  // Forward CDP command from DevTools to iframe
+  if (event.data && typeof event.data === 'string') {
+    try {
+      const parsed = JSON.parse(event.data);
+      if (parsed.method || parsed.id !== undefined) {
+        // This is a CDP message, forward to iframe
+        previewFrame.contentWindow?.postMessage(
+          { type: 'cdp-command', message: event.data },
+          '*'
+        );
       }
-    }
-
-    html += `<span class="dom-tag">&gt;</span>`;
-    nodeEl.innerHTML = html;
-    container.appendChild(nodeEl);
-
-    // Render children
-    if (node.children) {
-      for (const child of node.children) {
-        renderDOMNode(child, container, depth + 1);
-      }
-    }
-
-    // Closing tag
-    if (node.children && node.children.length > 0) {
-      const closeEl = document.createElement('div');
-      closeEl.className = 'dom-node';
-      closeEl.style.paddingLeft = `${depth * 12}px`;
-      closeEl.innerHTML = `<span class="dom-tag">&lt;/${node.localName}&gt;</span>`;
-      container.appendChild(closeEl);
-    }
-  } else if (node.nodeType === 3 && node.nodeValue?.trim()) {
-    // Text node
-    nodeEl.innerHTML = `<span class="dom-text">"${escapeHtml(node.nodeValue.trim())}"</span>`;
-    container.appendChild(nodeEl);
-  } else if (node.nodeType === 9) {
-    // Document node - render children
-    if (node.children) {
-      for (const child of node.children) {
-        renderDOMNode(child, container, depth);
-      }
+    } catch {
+      // Not JSON, ignore
     }
   }
 }
 
-// Subscribe to console messages from CDP
-onCDPEvent('Console.messageAdded', (params) => {
-  const msg = params.message;
-  const type = msg.level === 'warning' ? 'warn' : msg.level || 'log';
-  addConsoleEntry(type as any, msg.text);
-});
+// Listen for messages from DevTools window
+window.addEventListener('message', handleDevtoolsMessage);
 
-onCDPEvent('Runtime.consoleAPICalled', (params) => {
-  const type = params.type === 'warning' ? 'warn' : params.type || 'log';
-  const args = params.args || [];
-  const message = args.map((arg: any) => arg.value || arg.description || arg.type).join(' ');
-  addConsoleEntry(type as any, message);
-});
-
-// DevTools event listeners
-devtoolsToggle.addEventListener('click', toggleDevtools);
-
-devtoolsTabs.forEach((tab) => {
-  tab.addEventListener('click', () => {
-    const tabName = tab.getAttribute('data-tab');
-    if (tabName) switchDevtoolsTab(tabName);
-  });
-});
-
-consoleInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && consoleInput.value.trim()) {
-    evaluateInConsole(consoleInput.value.trim());
-    consoleInput.value = '';
-  }
-});
+// DevTools toggle button
+devtoolsToggle.addEventListener('click', openDevtools);
 
 // Event listeners
 runBtn.addEventListener('click', () => {

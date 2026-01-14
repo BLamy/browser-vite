@@ -246,103 +246,7 @@
       .log-entry.warn { color: #ffb74d; }
       .log-entry.hmr { color: #ce93d8; }
 
-      /* DevTools Panel */
-      .devtools-pane {
-        display: none;
-        height: 250px;
-        background: #1a1a2e;
-        border-top: 1px solid #0f3460;
-        flex-shrink: 0;
-        flex-direction: column;
-      }
-      .devtools-pane.visible {
-        display: flex;
-      }
-      .devtools-tabs {
-        display: flex;
-        background: #0f3460;
-        border-bottom: 1px solid #1a4d8e;
-      }
-      .devtools-tab {
-        padding: 8px 16px;
-        background: transparent;
-        border: none;
-        color: #888;
-        cursor: pointer;
-        font-size: 12px;
-        border-bottom: 2px solid transparent;
-      }
-      .devtools-tab:hover {
-        color: #ccc;
-        background: #1a2744;
-      }
-      .devtools-tab.active {
-        color: #fff;
-        border-bottom-color: #646cff;
-      }
-      .devtools-content {
-        flex: 1;
-        overflow: auto;
-        padding: 10px;
-        font-family: monospace;
-        font-size: 12px;
-      }
-      .console-entry {
-        padding: 4px 8px;
-        border-bottom: 1px solid #2a2a3e;
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-      }
-      .console-entry.log { color: #fff; }
-      .console-entry.warn { color: #ffb74d; background: rgba(255, 183, 77, 0.1); }
-      .console-entry.error { color: #e57373; background: rgba(229, 115, 115, 0.1); }
-      .console-entry.info { color: #64b5f6; }
-      .console-entry-icon {
-        flex-shrink: 0;
-        width: 16px;
-      }
-      .console-entry-message {
-        flex: 1;
-        white-space: pre-wrap;
-        word-break: break-all;
-      }
-      .console-input-wrapper {
-        display: flex;
-        border-top: 1px solid #0f3460;
-        background: #0d1525;
-      }
-      .console-prompt {
-        padding: 8px;
-        color: #646cff;
-      }
-      #consoleInput {
-        flex: 1;
-        background: transparent;
-        border: none;
-        color: #fff;
-        font-family: monospace;
-        font-size: 12px;
-        padding: 8px;
-        outline: none;
-      }
-      .dom-tree {
-        font-size: 12px;
-      }
-      .dom-node {
-        padding: 2px 0;
-        cursor: pointer;
-      }
-      .dom-node:hover {
-        background: #1a2744;
-      }
-      .dom-tag { color: #ce93d8; }
-      .dom-attr-name { color: #ffb74d; }
-      .dom-attr-value { color: #81c784; }
-      .dom-text { color: #888; }
-      .dom-children {
-        padding-left: 16px;
-      }
+      /* DevTools toggle button */
       .devtools-toggle {
         padding: 4px 8px !important;
         font-size: 11px !important;
@@ -437,24 +341,6 @@
             </span>
           </div>
           <iframe id="preview" sandbox="allow-scripts allow-same-origin"></iframe>
-        </div>
-      </div>
-
-      <!-- DevTools Panel -->
-      <div id="devtoolsPane" class="devtools-pane">
-        <div class="devtools-tabs">
-          <button class="devtools-tab active" data-tab="console">Console</button>
-          <button class="devtools-tab" data-tab="elements">Elements</button>
-        </div>
-        <div id="devtoolsConsole" class="devtools-content">
-          <div id="consoleOutput"></div>
-        </div>
-        <div id="devtoolsElements" class="devtools-content" style="display: none;">
-          <div id="domTree" class="dom-tree">Loading DOM...</div>
-        </div>
-        <div class="console-input-wrapper">
-          <span class="console-prompt">&gt;</span>
-          <input type="text" id="consoleInput" placeholder="Enter JavaScript expression..." />
         </div>
       </div>
 
