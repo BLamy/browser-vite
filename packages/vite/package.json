@@ -33,13 +33,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vitejs/vite.git",
+    "url": "git+https://github.com/BLamy/browser-vite.git",
     "directory": "packages/vite"
   },
   "bugs": {
-    "url": "https://github.com/vitejs/vite/issues"
+    "url": "https://github.com/BLamy/browser-vite/issues"
   },
-  "homepage": "https://github.com/vitejs/vite/tree/main/#readme",
+  "homepage": "https://github.com/BLamy/browser-vite#readme",
   "scripts": {
     "dev": "rimraf dist && rollup -c -w",
     "build": "rimraf dist && npm run lint && run-s build-bundle build-types",
