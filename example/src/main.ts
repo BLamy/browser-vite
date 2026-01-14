@@ -540,7 +540,7 @@ const __exports = {};
 function __require(id) {
   if (__exports[id]) return __exports[id];
   __exports[id] = {};
-  __modules[id](__exports[id], __require);
+  __modules[id](__require);
   return __exports[id];
 }
 
@@ -627,7 +627,7 @@ function __require(id) {
     }
 
     bundle += `
-__modules['${path}'] = function(__exports, __require) {
+__modules['${path}'] = function(__require) {
   const __currentModule = '${path}';
 ${processedCode
   .split('\n')
