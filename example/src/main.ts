@@ -9,6 +9,7 @@
  * - Module resolution between files
  */
 
+import './index.css';
 import { EditorView, basicSetup } from 'codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { css } from '@codemirror/lang-css';
@@ -231,7 +232,6 @@ function initFileSystem() {
 // =============================================================================
 
 const statusEl = document.getElementById('status')!;
-const logsEl = document.getElementById('logs')!;
 const editorContainer = document.getElementById('editor')!;
 const previewFrame = document.getElementById('preview') as HTMLIFrameElement;
 const runBtn = document.getElementById('runCode') as HTMLButtonElement;
@@ -255,24 +255,18 @@ let iframeReady = false;
 // =============================================================================
 
 function log(message: string, type: 'info' | 'success' | 'error' | 'warn' | 'hmr' = 'info') {
-  const entry = document.createElement('div');
-  const timestamp = new Date().toLocaleTimeString('en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
-  entry.className = `log-entry ${type}`;
-  entry.textContent = `[${timestamp}] ${type === 'hmr' ? '[HMR] ' : ''}${message}`;
-  logsEl.appendChild(entry);
-  logsEl.scrollTop = logsEl.scrollHeight;
-  console.log(`[${type.toUpperCase()}]`, message);
+  const prefix = type === 'hmr' ? '[HMR]' : `[${type.toUpperCase()}]`;
+  console.log(prefix, message);
 }
 
 function setStatus(message: string, type: 'success' | 'error' | 'pending') {
   statusEl.textContent = message;
-  statusEl.className = `status ${type}`;
+  const statusStyles: Record<string, string> = {
+    success: 'bg-emerald-900/50 border-emerald-700',
+    error: 'bg-red-900/50 border-red-700',
+    pending: 'bg-amber-900/50 border-amber-700',
+  };
+  statusEl.className = `px-3 py-1.5 rounded font-mono text-xs border ${statusStyles[type]}`;
 }
 
 // =============================================================================
@@ -335,12 +329,12 @@ function renderFileTree() {
   function renderNode(node: FileTreeNode, container: HTMLElement) {
     if (node.isFolder) {
       const folderEl = document.createElement('div');
-      folderEl.className = 'folder-item';
-      folderEl.innerHTML = `<span class="folder-icon">📁</span>${node.name}`;
+      folderEl.className = 'flex items-center px-3 py-1.5 cursor-pointer text-[13px] text-[hsl(var(--muted-foreground))] font-medium hover:bg-[hsl(var(--sidebar-accent))]';
+      folderEl.innerHTML = `<span class="mr-2">📁</span>${node.name}`;
       container.appendChild(folderEl);
 
       const contentsEl = document.createElement('div');
-      contentsEl.className = 'folder-contents';
+      contentsEl.className = 'pl-3';
       container.appendChild(contentsEl);
 
       if (node.children) {
@@ -356,14 +350,14 @@ function renderFileTree() {
       }
     } else {
       const fileEl = document.createElement('div');
-      fileEl.className = 'file-item';
-      if (node.path === currentFile) {
-        fileEl.classList.add('active');
-      }
-      if (modifiedFiles.has(node.path)) {
-        fileEl.classList.add('modified');
-      }
-      fileEl.innerHTML = `<span class="file-icon">${getFileIcon(node.name)}</span>${node.name}`;
+      const isActive = node.path === currentFile;
+      const isModified = modifiedFiles.has(node.path);
+      const baseClasses = 'flex items-center px-3 py-1.5 cursor-pointer text-[13px] border-l-2 hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--foreground))]';
+      const activeClasses = isActive
+        ? 'bg-[hsl(var(--sidebar-accent))] text-[hsl(var(--foreground))] border-l-[hsl(var(--primary))]'
+        : 'text-[hsl(var(--sidebar-foreground))] border-l-transparent';
+      fileEl.className = `${baseClasses} ${activeClasses}`;
+      fileEl.innerHTML = `<span class="w-4 h-4 mr-2 text-sm">${getFileIcon(node.name)}</span>${node.name}${isModified ? '<span class="w-1.5 h-1.5 bg-amber-500 rounded-full ml-auto"></span>' : ''}`;
       fileEl.addEventListener('click', () => openFile(node.path));
       container.appendChild(fileEl);
     }
@@ -967,13 +961,15 @@ function scheduleUpdate() {
 
 // New file modal handlers
 function showNewFileModal() {
-  newFileModal.classList.add('visible');
+  newFileModal.classList.remove('hidden');
+  newFileModal.classList.add('flex');
   newFileNameInput.value = '';
   newFileNameInput.focus();
 }
 
 function hideNewFileModal() {
-  newFileModal.classList.remove('visible');
+  newFileModal.classList.add('hidden');
+  newFileModal.classList.remove('flex');
 }
 
 function createNewFile() {
@@ -1080,8 +1076,9 @@ function toggleDevtools() {
   }
 
   devtoolsOpen = !devtoolsOpen;
-  devtoolsPanel.classList.toggle('visible', devtoolsOpen);
-  devtoolsToggle.classList.toggle('active', devtoolsOpen);
+  devtoolsPanel.classList.toggle('hidden', !devtoolsOpen);
+  devtoolsPanel.classList.toggle('block', devtoolsOpen);
+  devtoolsToggle.classList.toggle('bg-[hsl(var(--primary))]', devtoolsOpen);
 
   if (devtoolsOpen && !devtoolsInitialized) {
     initDevtoolsFrame();
