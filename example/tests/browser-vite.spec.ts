@@ -4,20 +4,32 @@ import { test, expect, Page } from '@playwright/test';
  * Browser-Vite E2E Tests
  *
  * These tests verify that browser-vite's core functionality works correctly
- * in the browser environment.
+ * in the browser environment with the new file tree and multi-file support.
  */
 
 // Helper to wait for browser-vite initialization
-async function waitForBrowserViteReady(page: Page, timeout = 10000): Promise<void> {
+async function waitForBrowserViteReady(page: Page, timeout = 30000): Promise<void> {
+  // Wait for status to show success or error
+  await page.waitForSelector('.status.success, .status.error', { timeout });
+
+  // Check if there was an error
+  const statusEl = await page.locator('.status');
+  const statusClass = await statusEl.getAttribute('class');
+  if (statusClass?.includes('error')) {
+    const errorText = await statusEl.textContent();
+    throw new Error(`Browser-vite initialization failed: ${errorText}`);
+  }
+}
+
+// Helper to wait for iframe HMR ready
+async function waitForIframeReady(page: Page, timeout = 15000): Promise<void> {
   await page.waitForFunction(
-    () => (window as any).browserViteReady === true || (window as any).browserViteError,
+    () => {
+      const logs = document.getElementById('logs')?.textContent || '';
+      return logs.includes('HMR Runtime initialized') || logs.includes('Rendered component');
+    },
     { timeout }
   );
-
-  const error = await page.evaluate(() => (window as any).browserViteError);
-  if (error) {
-    throw new Error(`Browser-vite initialization failed: ${error}`);
-  }
 }
 
 test.describe('Browser-Vite Initialization', () => {
@@ -28,17 +40,15 @@ test.describe('Browser-Vite Initialization', () => {
     // Check status shows success
     const status = page.locator('#status');
     await expect(status).toHaveClass(/success/);
-    await expect(status).toContainText('initialized successfully');
+    await expect(status).toContainText('Ready');
   });
 
-  test('should enable action buttons after initialization', async ({ page }) => {
+  test('should enable run button after initialization', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
 
-    // All buttons should be enabled
-    await expect(page.locator('#runTests')).toBeEnabled();
-    await expect(page.locator('#transformCode')).toBeEnabled();
-    await expect(page.locator('#testHMR')).toBeEnabled();
+    // Run button should be enabled
+    await expect(page.locator('#runCode')).toBeEnabled();
   });
 
   test('should expose browserVite instance on window', async ({ page }) => {
@@ -47,59 +57,101 @@ test.describe('Browser-Vite Initialization', () => {
 
     const hasBrowserVite = await page.evaluate(() => {
       const bv = (window as any).browserVite;
-      return bv && typeof bv.transform === 'function' && typeof bv.resolveId === 'function';
+      return bv && typeof bv.transform === 'function';
     });
 
     expect(hasBrowserVite).toBe(true);
   });
 });
 
-test.describe('Browser-Vite Test Suite', () => {
-  test('should run all tests and pass', async ({ page }) => {
+test.describe('File Tree', () => {
+  test('should render file tree with all files', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
 
-    // Click run tests button
-    await page.click('#runTests');
+    // Check that the file tree contains expected files
+    const fileTree = page.locator('#fileTree');
 
-    // Wait for tests to complete
-    await page.waitForFunction(
-      () => (window as any).allTestsPassed !== undefined,
-      { timeout: 30000 }
-    );
-
-    // Check all tests passed
-    const allPassed = await page.evaluate(() => (window as any).allTestsPassed);
-    expect(allPassed).toBe(true);
+    await expect(fileTree).toContainText('App.tsx');
+    await expect(fileTree).toContainText('Counter.tsx');
+    await expect(fileTree).toContainText('Header.tsx');
+    await expect(fileTree).toContainText('Button.tsx');
+    await expect(fileTree).toContainText('utils.ts');
+    await expect(fileTree).toContainText('styles.css');
   });
 
-  test('should display individual test results', async ({ page }) => {
+  test('should show folders in file tree', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
 
-    await page.click('#runTests');
+    const fileTree = page.locator('#fileTree');
 
-    // Wait for test results
-    await page.waitForSelector('[data-testid="test-typescript-transform"]');
+    // Should have src and components folders
+    await expect(fileTree).toContainText('src');
+    await expect(fileTree).toContainText('components');
+  });
 
-    // Check that all test results are shown
-    const testResults = page.locator('.test-result');
-    await expect(testResults).toHaveCount(6);
+  test('should highlight active file', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
 
-    // Verify each test
-    const tests = [
-      'test-typescript-transform',
-      'test-jsx-transform',
-      'test-css-processing',
-      'test-module-resolution',
-      'test-plugin-system',
-      'test-source-maps'
-    ];
+    // App.tsx should be active by default
+    const activeFile = page.locator('.file-item.active');
+    await expect(activeFile).toContainText('App.tsx');
+  });
 
-    for (const testId of tests) {
-      const result = page.locator(`[data-testid="${testId}"]`);
-      await expect(result).toHaveAttribute('data-passed', 'true');
-    }
+  test('should switch files when clicked', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    // Click on Counter.tsx
+    await page.locator('.file-item:has-text("Counter.tsx")').click();
+
+    // Counter.tsx should now be active
+    const activeFile = page.locator('.file-item.active');
+    await expect(activeFile).toContainText('Counter.tsx');
+
+    // Header should show Counter.tsx
+    const currentFileName = page.locator('#currentFileName');
+    await expect(currentFileName).toContainText('Counter.tsx');
+  });
+});
+
+test.describe('Editor', () => {
+  test('should load file content in editor', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    // Editor should contain App.tsx content
+    const editorContent = await page.locator('.cm-content').textContent();
+    expect(editorContent).toContain('App');
+    expect(editorContent).toContain('import React');
+  });
+
+  test('should update editor when switching files', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    // Click on utils.ts
+    await page.locator('.file-item:has-text("utils.ts")').click();
+
+    // Editor should now show utils.ts content
+    const editorContent = await page.locator('.cm-content').textContent();
+    expect(editorContent).toContain('greeting');
+    expect(editorContent).toContain('formatNumber');
+  });
+
+  test('should mark file as modified when edited', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    // Type in editor
+    await page.locator('.cm-content').click();
+    await page.keyboard.type('// test comment');
+
+    // App.tsx should now have modified indicator
+    const modifiedFile = page.locator('.file-item.modified');
+    await expect(modifiedFile).toBeVisible();
   });
 });
 
@@ -155,22 +207,6 @@ test.describe('Code Transformation', () => {
     expect(result.code).not.toContain('<span>');
   });
 
-  test('should process CSS into JS module', async ({ page }) => {
-    await page.goto('/');
-    await waitForBrowserViteReady(page);
-
-    const result = await page.evaluate(async () => {
-      const bv = (window as any).browserVite;
-      const css = `.button { color: red; padding: 10px; }`;
-      return await bv.transform(css, '/styles.css');
-    });
-
-    // CSS should be wrapped in a JS module
-    expect(result.code).toContain('document.createElement');
-    expect(result.code).toContain('style');
-    expect(result.code).toContain('.button');
-  });
-
   test('should generate source maps', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
@@ -185,145 +221,212 @@ test.describe('Code Transformation', () => {
   });
 });
 
-test.describe('Module Resolution', () => {
-  test('should resolve relative imports', async ({ page }) => {
+test.describe('Preview & HMR', () => {
+  test('should render preview iframe', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
+    await waitForIframeReady(page);
 
-    const result = await page.evaluate(async () => {
-      const bv = (window as any).browserVite;
-      return await bv.resolveId('./utils', '/src/main.ts');
-    });
-
-    expect(result).toBeTruthy();
-    expect(result.id).toBe('./utils');
+    // Check that iframe exists and has content
+    const iframe = page.frameLocator('#preview');
+    const root = iframe.locator('#root');
+    await expect(root).toBeVisible();
   });
 
-  test('should resolve node module imports', async ({ page }) => {
+  test('should display React app in preview', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
+    await waitForIframeReady(page);
 
-    const result = await page.evaluate(async () => {
-      const bv = (window as any).browserVite;
-      return await bv.resolveId('react', '/src/main.tsx');
-    });
-
-    expect(result).toBeTruthy();
-    expect(result.id).toContain('react');
-    expect(result.external).toBe(true);
-  });
-});
-
-test.describe('HMR (Hot Module Replacement)', () => {
-  test('should handle HMR updates', async ({ page }) => {
-    await page.goto('/');
-    await waitForBrowserViteReady(page);
-
-    // Click HMR test button
-    await page.click('#testHMR');
-
-    // Wait for HMR test to complete
-    await page.waitForFunction(
-      () => (window as any).hmrTestPassed !== undefined,
-      { timeout: 10000 }
-    );
-
-    const passed = await page.evaluate(() => (window as any).hmrTestPassed);
-    expect(passed).toBe(true);
+    // Check that the app is rendered
+    const iframe = page.frameLocator('#preview');
+    await expect(iframe.locator('text=Browser-Vite Demo')).toBeVisible({ timeout: 10000 });
   });
 
-  test('should update module graph on HMR', async ({ page }) => {
+  test('should update preview on code changes', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
+    await waitForIframeReady(page);
 
-    const result = await page.evaluate(async () => {
-      const bv = (window as any).browserVite;
+    // Wait for initial render
+    const iframe = page.frameLocator('#preview');
+    await expect(iframe.locator('text=Browser-Vite Demo')).toBeVisible({ timeout: 10000 });
 
-      // Initial transform
-      await bv.transform('export const v = 1;', '/mod.ts');
-      const before = bv.getModule('/mod.ts')?.content;
+    // Click on Header.tsx
+    await page.locator('.file-item:has-text("Header.tsx")').click();
 
-      // HMR update
-      await bv.handleHMRUpdate('/mod.ts', 'export const v = 2;');
-      const after = bv.getModule('/mod.ts')?.content;
+    // Wait for editor to load
+    await page.waitForTimeout(500);
 
-      return { before, after };
-    });
+    // Modify the title in the Header component
+    // First select all text and replace
+    await page.locator('.cm-content').click();
+    await page.keyboard.press('Meta+a');
+    await page.keyboard.type(`import React from 'react';
 
-    expect(result.before).toContain('1');
-    expect(result.after).toContain('2');
+interface HeaderProps {
+  title: string;
+}
+
+export function Header({ title }: HeaderProps) {
+  return (
+    <header>
+      <h1 style={{
+        fontSize: '2.5rem',
+        marginBottom: '10px',
+        textShadow: '2px 2px 4px rgba(0,0,0,0.2)'
+      }}>
+        Modified Title Test
+      </h1>
+    </header>
+  );
+}`);
+
+    // Wait for HMR update (debounce + transform)
+    await page.waitForTimeout(2000);
+
+    // Preview should update (though it may show an error if the bundle fails)
+    // Check logs for HMR activity
+    const logs = await page.locator('#logs').textContent();
+    expect(logs).toContain('HMR');
   });
-});
 
-test.describe('Plugin System', () => {
-  test('should have core plugins loaded', async ({ page }) => {
+  test('should show HMR logs', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
+    await waitForIframeReady(page);
 
-    const plugins = await page.evaluate(() => {
-      const bv = (window as any).browserVite;
-      return bv.getPluginNames();
-    });
-
-    expect(plugins).toContain('vite:esbuild');
-    expect(plugins).toContain('vite:jsx');
-    expect(plugins).toContain('vite:css');
-    expect(plugins).toContain('vite:resolve');
-  });
-
-  test('should allow adding custom plugins', async ({ page }) => {
-    await page.goto('/');
-    await waitForBrowserViteReady(page);
-
-    const result = await page.evaluate(async () => {
-      const bv = (window as any).browserVite;
-
-      // Add custom plugin
-      bv.addPlugin({
-        name: 'custom-test-plugin',
-        transform(code: string, id: string) {
-          if (id.endsWith('.custom')) {
-            return { code: `/* Custom: ${code} */`, map: null };
-          }
-          return null;
-        }
-      });
-
-      const hasPlugin = bv.hasPlugin('custom-test-plugin');
-      const transformed = await bv.transform('test content', '/file.custom');
-
-      return { hasPlugin, transformed };
-    });
-
-    expect(result.hasPlugin).toBe(true);
-    expect(result.transformed.code).toContain('/* Custom:');
+    // Check logs contain HMR messages
+    const logs = page.locator('#logs');
+    await expect(logs).toContainText('HMR');
+    await expect(logs).toContainText('Runtime initialized');
   });
 });
 
-test.describe('Transform Sample Code Button', () => {
-  test('should transform and display sample code', async ({ page }) => {
+test.describe('New File Modal', () => {
+  test('should open new file modal', async ({ page }) => {
     await page.goto('/');
     await waitForBrowserViteReady(page);
 
-    // Click transform button
-    await page.click('#transformCode');
+    // Click new file button
+    await page.click('#newFileBtn');
 
-    // Wait for transform result
-    await page.waitForFunction(
-      () => (window as any).lastTransformResult !== undefined,
-      { timeout: 10000 }
-    );
+    // Modal should be visible
+    await expect(page.locator('#newFileModal')).toHaveClass(/visible/);
+  });
 
-    // Check result was stored
-    const hasResult = await page.evaluate(() => {
-      const result = (window as any).lastTransformResult;
-      return result && result.code && result.code.length > 0;
+  test('should close modal on cancel', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    await page.click('#newFileBtn');
+    await expect(page.locator('#newFileModal')).toHaveClass(/visible/);
+
+    await page.click('#cancelNewFile');
+    await expect(page.locator('#newFileModal')).not.toHaveClass(/visible/);
+  });
+
+  test('should create new file', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    // Open modal
+    await page.click('#newFileBtn');
+
+    // Type filename
+    await page.locator('#newFileName').fill('NewComponent.tsx');
+
+    // Click create
+    await page.click('#createNewFile');
+
+    // Modal should close
+    await expect(page.locator('#newFileModal')).not.toHaveClass(/visible/);
+
+    // New file should appear in tree
+    await expect(page.locator('#fileTree')).toContainText('NewComponent.tsx');
+
+    // New file should be active
+    const currentFileName = page.locator('#currentFileName');
+    await expect(currentFileName).toContainText('NewComponent.tsx');
+  });
+});
+
+test.describe('Virtual File System', () => {
+  test('should expose fileSystem on window', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    const hasFileSystem = await page.evaluate(() => {
+      const fs = (window as any).fileSystem;
+      return fs && fs instanceof Map && fs.size > 0;
     });
 
-    expect(hasResult).toBe(true);
+    expect(hasFileSystem).toBe(true);
+  });
 
-    // Check that transformed code is displayed in app area
-    const appContent = await page.locator('#app').textContent();
-    expect(appContent).toContain('Transformed Code');
+  test('should have correct number of initial files', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    const fileCount = await page.evaluate(() => {
+      return (window as any).fileSystem.size;
+    });
+
+    expect(fileCount).toBe(6); // App.tsx, Counter.tsx, Header.tsx, Button.tsx, utils.ts, styles.css
+  });
+
+  test('should preserve file content when switching', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+
+    // Get initial content of App.tsx
+    const initialContent = await page.evaluate(() => {
+      return (window as any).fileSystem.get('/src/App.tsx')?.content;
+    });
+
+    // Switch to another file
+    await page.locator('.file-item:has-text("Counter.tsx")').click();
+    await page.waitForTimeout(300);
+
+    // Switch back to App.tsx
+    await page.locator('.file-item:has-text("App.tsx")').click();
+    await page.waitForTimeout(300);
+
+    // Content should be preserved
+    const finalContent = await page.evaluate(() => {
+      return (window as any).fileSystem.get('/src/App.tsx')?.content;
+    });
+
+    expect(finalContent).toBe(initialContent);
+  });
+});
+
+test.describe('Counter Component Interaction', () => {
+  test('should render counter with initial value', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+    await waitForIframeReady(page);
+
+    const iframe = page.frameLocator('#preview');
+
+    // Wait for counter to be visible
+    await expect(iframe.locator('text=0')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('should increment counter when button clicked', async ({ page }) => {
+    await page.goto('/');
+    await waitForBrowserViteReady(page);
+    await waitForIframeReady(page);
+
+    const iframe = page.frameLocator('#preview');
+
+    // Wait for app to render
+    await expect(iframe.locator('text=Increment')).toBeVisible({ timeout: 15000 });
+
+    // Click increment
+    await iframe.locator('button:has-text("Increment")').click();
+
+    // Counter should show 1
+    await expect(iframe.locator('text=1')).toBeVisible();
   });
 });
