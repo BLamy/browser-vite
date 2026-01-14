@@ -3,8 +3,8 @@
  *
  * Features:
  * - CodeMirror editor for editing code
- * - Live preview in iframe
- * - HMR-style updates on code changes
+ * - Live preview in iframe with HMR
+ * - HMR-style updates on code changes (no full refresh)
  */
 
 import { EditorView, basicSetup } from 'codemirror';
@@ -160,14 +160,18 @@ let browserVite: BrowserVite | null = null;
 let editor: EditorView | null = null;
 let currentFileType: 'tsx' | 'ts' | 'css' = 'tsx';
 let debounceTimer: number | null = null;
+let updateCounter = 0;
+let iframeReady = false;
 
-// Logging
-function log(message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') {
+// Logging with timestamps
+function log(message: string, type: 'info' | 'success' | 'error' | 'warn' | 'hmr' = 'info') {
   const entry = document.createElement('div');
+  const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
   entry.className = `log-entry ${type}`;
-  entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+  entry.textContent = `[${timestamp}] ${type === 'hmr' ? '[HMR] ' : ''}${message}`;
   logsEl.appendChild(entry);
   logsEl.scrollTop = logsEl.scrollHeight;
+  console.log(`[${type.toUpperCase()}]`, message);
 }
 
 function setStatus(message: string, type: 'success' | 'error' | 'pending') {
@@ -175,8 +179,8 @@ function setStatus(message: string, type: 'success' | 'error' | 'pending') {
   statusEl.className = `status ${type}`;
 }
 
-// Create the iframe HTML wrapper for React
-function createReactWrapper(code: string): string {
+// Create the iframe HTML with HMR support
+function createHMRRuntime(): string {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -186,151 +190,242 @@ function createReactWrapper(code: string): string {
   <style>
     body { margin: 0; }
     #root { min-height: 100vh; }
+    .hmr-error {
+      font-family: monospace;
+      background: #2d1b1b;
+      color: #ff6b6b;
+      padding: 20px;
+      margin: 0;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .hmr-error pre { white-space: pre-wrap; word-wrap: break-word; }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script>
-    ${code}
+    // HMR Runtime
+    let currentApp = null;
+    let reactRoot = null;
+    let updateCount = 0;
 
-    // Find and render the default export
-    if (typeof App !== 'undefined') {
-      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
-    } else if (typeof exports !== 'undefined' && exports.default) {
-      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(exports.default));
+    function hmrLog(msg) {
+      window.parent.postMessage({ type: 'hmr-log', message: msg }, '*');
     }
+
+    function renderApp(AppComponent) {
+      try {
+        if (!reactRoot) {
+          reactRoot = ReactDOM.createRoot(document.getElementById('root'));
+          hmrLog('Created new React root');
+        }
+        reactRoot.render(React.createElement(AppComponent));
+        hmrLog('Rendered component (update #' + updateCount + ')');
+      } catch (err) {
+        hmrLog('Render error: ' + err.message);
+        document.getElementById('root').innerHTML =
+          '<div class="hmr-error"><h2>Render Error</h2><pre>' + err.message + '</pre></div>';
+      }
+    }
+
+    function handleHMRUpdate(code, fileType) {
+      updateCount++;
+      hmrLog('Received HMR update #' + updateCount + ' for ' + fileType);
+
+      if (fileType === 'css') {
+        // CSS HMR - just update the style tag
+        let styleEl = document.getElementById('hmr-styles');
+        if (!styleEl) {
+          styleEl = document.createElement('style');
+          styleEl.id = 'hmr-styles';
+          document.head.appendChild(styleEl);
+          hmrLog('Created style element');
+        }
+        styleEl.textContent = code;
+        // Update body content for CSS preview
+        document.getElementById('root').innerHTML = \`
+          <div class="card">
+            <h1>CSS Preview</h1>
+            <p>This is a preview of your CSS styles. Edit the code on the left to see changes.</p>
+            <button>Hover Me!</button>
+          </div>
+        \`;
+        hmrLog('CSS injected without reload');
+        return;
+      }
+
+      // JS/TSX HMR - evaluate new code and re-render
+      try {
+        hmrLog('Evaluating new module code...');
+
+        // Create a new function scope for the code
+        const moduleExports = {};
+        const moduleCode = code + '\\n; return typeof App !== "undefined" ? App : null;';
+
+        try {
+          const AppComponent = new Function('React', 'exports', moduleCode)(React, moduleExports);
+
+          if (AppComponent) {
+            currentApp = AppComponent;
+            renderApp(currentApp);
+            hmrLog('HMR update successful - component re-rendered');
+          } else if (moduleExports.default) {
+            currentApp = moduleExports.default;
+            renderApp(currentApp);
+            hmrLog('HMR update successful - default export re-rendered');
+          } else {
+            // Non-React code, just execute it
+            hmrLog('Non-component code executed');
+          }
+        } catch (evalErr) {
+          throw new Error('Eval error: ' + evalErr.message);
+        }
+      } catch (err) {
+        hmrLog('HMR Error: ' + err.message);
+        document.getElementById('root').innerHTML =
+          '<div class="hmr-error"><h2>HMR Error</h2><pre>' + err.message + '</pre></div>';
+      }
+    }
+
+    // Listen for HMR updates from parent
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'hmr-update') {
+        handleHMRUpdate(event.data.code, event.data.fileType);
+      }
+    });
+
+    // Signal ready
+    window.parent.postMessage({ type: 'hmr-ready' }, '*');
+    hmrLog('HMR Runtime initialized');
   </script>
 </body>
 </html>`;
 }
 
-// Create wrapper for plain JS/TS
-function createJSWrapper(code: string): string {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>body { margin: 0; }</style>
-</head>
-<body>
-  <script>${code}</script>
-</body>
-</html>`;
+// Process code for browser execution
+function processCodeForBrowser(code: string): string {
+  let processedCode = code;
+
+  // Replace React imports with globals (for UMD)
+  // Handle combined: import React, { useState, useEffect } from 'react'
+  processedCode = processedCode.replace(
+    /import\s+React\s*,\s*\{([^}]+)\}\s+from\s+['"]react['"];?/g,
+    (_, imports) => {
+      const vars = imports.split(',').map((i: string) => i.trim());
+      return `const React = window.React;\n${vars.map((v: string) => `const ${v} = React.${v};`).join('\n')}`;
+    }
+  );
+  // Handle: import React from 'react'
+  processedCode = processedCode.replace(
+    /import\s+React\s+from\s+['"]react['"];?/g,
+    'const React = window.React;'
+  );
+  // Handle: import { useState } from 'react'
+  processedCode = processedCode.replace(
+    /import\s+\{([^}]+)\}\s+from\s+['"]react['"];?/g,
+    (_, imports) => {
+      const vars = imports.split(',').map((i: string) => i.trim());
+      return vars.map((v: string) => `const ${v} = React.${v};`).join('\n');
+    }
+  );
+  // Handle react-dom
+  processedCode = processedCode
+    .replace(/import.*from\s+['"]react-dom\/client['"];?/g, 'const ReactDOM = window.ReactDOM;')
+    .replace(/import.*from\s+['"]react-dom['"];?/g, 'const ReactDOM = window.ReactDOM;');
+
+  // Handle exports for rendering
+  processedCode = processedCode
+    .replace(/export\s+default\s+function\s+(\w+)/g, 'function $1; var App = $1')
+    .replace(/export\s+default\s+/, 'var App = ')
+    .replace(/export\s+\{[^}]*\};?/g, '');
+
+  return processedCode;
 }
 
-// Create wrapper for CSS preview
-function createCSSWrapper(css: string): string {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>${css}</style>
-</head>
-<body>
-  <div class="card">
-    <h1>CSS Preview</h1>
-    <p>This is a preview of your CSS styles. Edit the code on the left to see changes.</p>
-    <button>Hover Me!</button>
-  </div>
-</body>
-</html>`;
-}
-
-// Transform and update preview
+// Transform and send HMR update
 async function updatePreview() {
-  if (!browserVite || !editor) return;
+  if (!browserVite || !editor) {
+    log('Cannot update: browserVite or editor not ready', 'warn');
+    return;
+  }
 
+  updateCounter++;
+  const updateId = updateCounter;
   const code = editor.state.doc.toString();
 
+  log(`Starting update #${updateId}`, 'hmr');
+
   try {
-    let result;
-    let html: string;
+    let processedCode: string;
 
     if (currentFileType === 'css') {
-      // CSS doesn't need transformation for preview
-      html = createCSSWrapper(code);
-      log('CSS updated', 'success');
+      processedCode = code;
+      log(`CSS update #${updateId} - no transform needed`, 'hmr');
     } else {
       // Transform TypeScript/JSX
       const filename = currentFileType === 'tsx' ? '/App.tsx' : '/main.ts';
-      result = await browserVite.transform(code, filename);
+      log(`Transforming ${filename}...`, 'hmr');
 
-      // Post-process for browser: handle imports
-      let processedCode = result.code;
+      const startTime = performance.now();
+      const result = await browserVite.transform(code, filename);
+      const transformTime = (performance.now() - startTime).toFixed(1);
 
-      // Replace React imports with globals (for UMD)
-      // Handle combined: import React, { useState, useEffect } from 'react'
-      processedCode = processedCode.replace(
-        /import\s+React\s*,\s*\{([^}]+)\}\s+from\s+['"]react['"];?/g,
-        (_, imports) => {
-          const vars = imports.split(',').map((i: string) => i.trim());
-          return `const React = window.React;\n${vars.map((v: string) => `const ${v} = React.${v};`).join('\n')}`;
-        }
-      );
-      // Handle: import React from 'react'
-      processedCode = processedCode.replace(
-        /import\s+React\s+from\s+['"]react['"];?/g,
-        'const React = window.React;'
-      );
-      // Handle: import { useState } from 'react'
-      processedCode = processedCode.replace(
-        /import\s+\{([^}]+)\}\s+from\s+['"]react['"];?/g,
-        (_, imports) => {
-          const vars = imports.split(',').map((i: string) => i.trim());
-          return vars.map((v: string) => `const ${v} = React.${v};`).join('\n');
-        }
-      );
-      // Handle react-dom
-      processedCode = processedCode
-        .replace(/import.*from\s+['"]react-dom\/client['"];?/g, 'const ReactDOM = window.ReactDOM;')
-        .replace(/import.*from\s+['"]react-dom['"];?/g, 'const ReactDOM = window.ReactDOM;');
+      log(`Transform complete in ${transformTime}ms`, 'hmr');
 
-      // Handle exports for rendering
-      processedCode = processedCode
-        .replace(/export\s+default\s+function\s+(\w+)/g, 'function $1')
-        .replace(/export\s+default\s+/, 'const App = ')
-        .replace(/export\s+\{[^}]*\};?/g, '');
-
-      if (currentFileType === 'tsx') {
-        html = createReactWrapper(processedCode);
-      } else {
-        html = createJSWrapper(processedCode);
-      }
-
-      log(`Transformed ${filename}`, 'success');
+      // Process for browser
+      processedCode = processCodeForBrowser(result.code);
+      log(`Code processed for browser (${processedCode.length} chars)`, 'hmr');
     }
 
-    // Update iframe
-    const blob = new Blob([html], { type: 'text/html' });
-    previewFrame.src = URL.createObjectURL(blob);
+    // Send to iframe via postMessage (HMR style)
+    if (iframeReady) {
+      log(`Sending HMR update #${updateId} to iframe...`, 'hmr');
+      previewFrame.contentWindow?.postMessage({
+        type: 'hmr-update',
+        code: processedCode,
+        fileType: currentFileType,
+        updateId
+      }, '*');
+    } else {
+      log('Iframe not ready, queuing update...', 'warn');
+    }
 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log(`Transform error: ${message}`, 'error');
 
-    // Show error in preview
-    const errorHtml = `<!DOCTYPE html>
-<html>
-<head><style>
-  body {
-    font-family: monospace;
-    background: #2d1b1b;
-    color: #ff6b6b;
-    padding: 20px;
-    margin: 0;
-    min-height: 100vh;
-    box-sizing: border-box;
+    // Send error to iframe
+    if (iframeReady) {
+      previewFrame.contentWindow?.postMessage({
+        type: 'hmr-update',
+        code: `document.getElementById('root').innerHTML = '<div class="hmr-error"><h2>Transform Error</h2><pre>${message.replace(/'/g, "\\'")}</pre></div>';`,
+        fileType: 'ts',
+        updateId
+      }, '*');
+    }
   }
-  pre { white-space: pre-wrap; word-wrap: break-word; }
-</style></head>
-<body>
-  <h2>Transform Error</h2>
-  <pre>${message}</pre>
-</body>
-</html>`;
-    const blob = new Blob([errorHtml], { type: 'text/html' });
-    previewFrame.src = URL.createObjectURL(blob);
+}
+
+// Listen for messages from iframe
+window.addEventListener('message', (event) => {
+  if (event.data?.type === 'hmr-ready') {
+    iframeReady = true;
+    log('Iframe HMR runtime ready', 'hmr');
+    // Send initial update
+    updatePreview();
+  } else if (event.data?.type === 'hmr-log') {
+    log(`iframe: ${event.data.message}`, 'hmr');
   }
+});
+
+// Initialize iframe with HMR runtime
+function initIframe() {
+  log('Initializing iframe with HMR runtime...', 'hmr');
+  iframeReady = false;
+  const html = createHMRRuntime();
+  const blob = new Blob([html], { type: 'text/html' });
+  previewFrame.src = URL.createObjectURL(blob);
 }
 
 // Debounced update for auto-run
@@ -341,9 +436,10 @@ function scheduleUpdate() {
     clearTimeout(debounceTimer);
   }
   debounceTimer = window.setTimeout(() => {
+    log('Debounce timer fired, triggering update', 'info');
     updatePreview();
     debounceTimer = null;
-  }, 500);
+  }, 300);
 }
 
 // Initialize CodeMirror editor
@@ -365,6 +461,7 @@ function initEditor(content: string, language: 'tsx' | 'ts' | 'css') {
         oneDark,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
+            log('Editor content changed', 'info');
             scheduleUpdate();
           }
         }),
@@ -398,7 +495,8 @@ function handleTemplateChange() {
   }
 
   log(`Switched to ${template} template`, 'info');
-  updatePreview();
+  // Re-init iframe for clean state
+  initIframe();
 }
 
 // Initialize
@@ -421,8 +519,8 @@ async function initialize() {
     // Initialize editor with React template
     initEditor(templates.react, 'tsx');
 
-    // Initial preview
-    await updatePreview();
+    // Initialize iframe with HMR runtime
+    initIframe();
 
     // Expose for debugging
     (window as any).browserVite = browserVite;
@@ -436,7 +534,10 @@ async function initialize() {
 }
 
 // Event listeners
-runBtn.addEventListener('click', updatePreview);
+runBtn.addEventListener('click', () => {
+  log('Manual run triggered', 'info');
+  updatePreview();
+});
 templateSelect.addEventListener('change', handleTemplateChange);
 
 // Start
