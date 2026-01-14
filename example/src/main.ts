@@ -332,10 +332,22 @@ function processCodeForBrowser(code: string): string {
     .replace(/import.*from\s+['"]react-dom['"];?/g, 'const ReactDOM = window.ReactDOM;');
 
   // Handle exports for rendering
+  // First capture the function name if it's a named export default function
+  const funcMatch = processedCode.match(/export\s+default\s+function\s+(\w+)/);
+  const funcName = funcMatch ? funcMatch[1] : null;
+
   processedCode = processedCode
-    .replace(/export\s+default\s+function\s+(\w+)/g, 'function $1; var App = $1')
+    // Remove 'export default' from function declarations, keep the function
+    .replace(/export\s+default\s+function\s+(\w+)/g, 'function $1')
+    // Handle 'export default expression'
     .replace(/export\s+default\s+/, 'var App = ')
+    // Remove named exports
     .replace(/export\s+\{[^}]*\};?/g, '');
+
+  // If there was a named function, add App assignment at the end
+  if (funcName) {
+    processedCode += `\\nvar App = ${funcName};`;
+  }
 
   return processedCode;
 }
