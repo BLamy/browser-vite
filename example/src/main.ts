@@ -1053,6 +1053,198 @@ async function initialize() {
   }
 }
 
+// =============================================================================
+// DevTools Panel
+// =============================================================================
+
+const devtoolsPane = document.getElementById('devtoolsPane')!;
+const devtoolsToggle = document.getElementById('devtoolsToggle')!;
+const devtoolsTabs = document.querySelectorAll('.devtools-tab');
+const devtoolsConsole = document.getElementById('devtoolsConsole')!;
+const devtoolsElements = document.getElementById('devtoolsElements')!;
+const consoleOutput = document.getElementById('consoleOutput')!;
+const consoleInput = document.getElementById('consoleInput') as HTMLInputElement;
+const domTree = document.getElementById('domTree')!;
+
+let devtoolsOpen = false;
+
+function toggleDevtools() {
+  devtoolsOpen = !devtoolsOpen;
+  devtoolsPane.classList.toggle('visible', devtoolsOpen);
+  devtoolsToggle.classList.toggle('active', devtoolsOpen);
+
+  if (devtoolsOpen && cdpReady) {
+    // Enable Console domain to receive console messages
+    sendCDPCommand('Console.enable').catch(() => {});
+    sendCDPCommand('Runtime.enable').catch(() => {});
+
+    // Load initial DOM
+    loadDOMTree();
+  }
+}
+
+function switchDevtoolsTab(tabName: string) {
+  devtoolsTabs.forEach((tab) => {
+    tab.classList.toggle('active', tab.getAttribute('data-tab') === tabName);
+  });
+  devtoolsConsole.style.display = tabName === 'console' ? 'block' : 'none';
+  devtoolsElements.style.display = tabName === 'elements' ? 'block' : 'none';
+
+  if (tabName === 'elements') {
+    loadDOMTree();
+  }
+}
+
+function addConsoleEntry(type: 'log' | 'warn' | 'error' | 'info', message: string) {
+  const entry = document.createElement('div');
+  entry.className = `console-entry ${type}`;
+
+  const icons: Record<string, string> = {
+    log: '○',
+    info: 'ℹ',
+    warn: '⚠',
+    error: '✕',
+  };
+
+  entry.innerHTML = `
+    <span class="console-entry-icon">${icons[type] || '○'}</span>
+    <span class="console-entry-message">${escapeHtml(message)}</span>
+  `;
+  consoleOutput.appendChild(entry);
+  consoleOutput.scrollTop = consoleOutput.scrollHeight;
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+async function evaluateInConsole(expression: string) {
+  if (!cdpReady) {
+    addConsoleEntry('error', 'CDP not ready');
+    return;
+  }
+
+  addConsoleEntry('info', `> ${expression}`);
+
+  try {
+    const result = await sendCDPCommand('Runtime.evaluate', {
+      expression,
+      returnByValue: true,
+    });
+
+    if (result.exceptionDetails) {
+      addConsoleEntry('error', result.exceptionDetails.text || 'Error');
+    } else if (result.result) {
+      const value = result.result.value !== undefined
+        ? JSON.stringify(result.result.value, null, 2)
+        : result.result.description || result.result.type;
+      addConsoleEntry('log', value);
+    }
+  } catch (err) {
+    addConsoleEntry('error', String(err));
+  }
+}
+
+async function loadDOMTree() {
+  if (!cdpReady) {
+    domTree.innerHTML = '<span class="dom-text">CDP not ready</span>';
+    return;
+  }
+
+  try {
+    const result = await sendCDPCommand('DOM.getDocument', { depth: -1 });
+    if (result && result.root) {
+      domTree.innerHTML = '';
+      renderDOMNode(result.root, domTree);
+    }
+  } catch (err) {
+    domTree.innerHTML = `<span class="dom-text">Error loading DOM: ${err}</span>`;
+  }
+}
+
+function renderDOMNode(node: any, container: HTMLElement, depth = 0) {
+  if (depth > 10) return; // Prevent infinite recursion
+
+  const nodeEl = document.createElement('div');
+  nodeEl.className = 'dom-node';
+  nodeEl.style.paddingLeft = `${depth * 12}px`;
+
+  if (node.nodeType === 1) {
+    // Element node
+    let html = `<span class="dom-tag">&lt;${node.localName}</span>`;
+
+    if (node.attributes && node.attributes.length > 0) {
+      for (let i = 0; i < node.attributes.length; i += 2) {
+        html += ` <span class="dom-attr-name">${node.attributes[i]}</span>=<span class="dom-attr-value">"${escapeHtml(node.attributes[i + 1])}"</span>`;
+      }
+    }
+
+    html += `<span class="dom-tag">&gt;</span>`;
+    nodeEl.innerHTML = html;
+    container.appendChild(nodeEl);
+
+    // Render children
+    if (node.children) {
+      for (const child of node.children) {
+        renderDOMNode(child, container, depth + 1);
+      }
+    }
+
+    // Closing tag
+    if (node.children && node.children.length > 0) {
+      const closeEl = document.createElement('div');
+      closeEl.className = 'dom-node';
+      closeEl.style.paddingLeft = `${depth * 12}px`;
+      closeEl.innerHTML = `<span class="dom-tag">&lt;/${node.localName}&gt;</span>`;
+      container.appendChild(closeEl);
+    }
+  } else if (node.nodeType === 3 && node.nodeValue?.trim()) {
+    // Text node
+    nodeEl.innerHTML = `<span class="dom-text">"${escapeHtml(node.nodeValue.trim())}"</span>`;
+    container.appendChild(nodeEl);
+  } else if (node.nodeType === 9) {
+    // Document node - render children
+    if (node.children) {
+      for (const child of node.children) {
+        renderDOMNode(child, container, depth);
+      }
+    }
+  }
+}
+
+// Subscribe to console messages from CDP
+onCDPEvent('Console.messageAdded', (params) => {
+  const msg = params.message;
+  const type = msg.level === 'warning' ? 'warn' : msg.level || 'log';
+  addConsoleEntry(type as any, msg.text);
+});
+
+onCDPEvent('Runtime.consoleAPICalled', (params) => {
+  const type = params.type === 'warning' ? 'warn' : params.type || 'log';
+  const args = params.args || [];
+  const message = args.map((arg: any) => arg.value || arg.description || arg.type).join(' ');
+  addConsoleEntry(type as any, message);
+});
+
+// DevTools event listeners
+devtoolsToggle.addEventListener('click', toggleDevtools);
+
+devtoolsTabs.forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const tabName = tab.getAttribute('data-tab');
+    if (tabName) switchDevtoolsTab(tabName);
+  });
+});
+
+consoleInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && consoleInput.value.trim()) {
+    evaluateInConsole(consoleInput.value.trim());
+    consoleInput.value = '';
+  }
+});
+
 // Event listeners
 runBtn.addEventListener('click', () => {
   log('Manual run triggered', 'info');
