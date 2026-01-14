@@ -255,6 +255,35 @@
         background: #646cff !important;
       }
 
+      /* Embedded DevTools Panel */
+      .devtools-panel {
+        display: none;
+        height: 350px;
+        border-top: 1px solid #0f3460;
+        flex-shrink: 0;
+        position: relative;
+      }
+      .devtools-panel.visible {
+        display: block;
+      }
+      .devtools-panel iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+      .devtools-resize-handle {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 6px;
+        cursor: ns-resize;
+        background: transparent;
+      }
+      .devtools-resize-handle:hover {
+        background: rgba(100, 108, 255, 0.3);
+      }
+
       /* New file modal */
       .modal-overlay {
         display: none;
@@ -342,6 +371,12 @@
           </div>
           <iframe id="preview" sandbox="allow-scripts allow-same-origin"></iframe>
         </div>
+      </div>
+
+      <!-- Embedded DevTools Panel -->
+      <div id="devtoolsPanel" class="devtools-panel">
+        <div class="devtools-resize-handle" id="devtoolsResizeHandle"></div>
+        <iframe id="devtoolsFrame" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
       </div>
 
       <div id="logs" class="logs-pane">
