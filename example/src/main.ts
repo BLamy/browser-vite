@@ -259,12 +259,29 @@ async function updatePreview() {
       let processedCode = result.code;
 
       // Replace React imports with globals (for UMD)
-      processedCode = processedCode
-        .replace(/import\s+React.*from\s+['"]react['"];?/g, 'const React = window.React;')
-        .replace(/import\s+\{([^}]+)\}\s+from\s+['"]react['"];?/g, (_, imports) => {
+      // Handle combined: import React, { useState, useEffect } from 'react'
+      processedCode = processedCode.replace(
+        /import\s+React\s*,\s*\{([^}]+)\}\s+from\s+['"]react['"];?/g,
+        (_, imports) => {
+          const vars = imports.split(',').map((i: string) => i.trim());
+          return `const React = window.React;\n${vars.map((v: string) => `const ${v} = React.${v};`).join('\n')}`;
+        }
+      );
+      // Handle: import React from 'react'
+      processedCode = processedCode.replace(
+        /import\s+React\s+from\s+['"]react['"];?/g,
+        'const React = window.React;'
+      );
+      // Handle: import { useState } from 'react'
+      processedCode = processedCode.replace(
+        /import\s+\{([^}]+)\}\s+from\s+['"]react['"];?/g,
+        (_, imports) => {
           const vars = imports.split(',').map((i: string) => i.trim());
           return vars.map((v: string) => `const ${v} = React.${v};`).join('\n');
-        })
+        }
+      );
+      // Handle react-dom
+      processedCode = processedCode
         .replace(/import.*from\s+['"]react-dom\/client['"];?/g, 'const ReactDOM = window.ReactDOM;')
         .replace(/import.*from\s+['"]react-dom['"];?/g, 'const ReactDOM = window.ReactDOM;');
 
