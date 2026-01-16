@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="https://raw.github.com/divriots/browser-vite/master/browser-vite.svg" height="200px">
+  <img src="https://raw.github.com/divriots/browser-vite-6/master/browser-vite-6.svg" height="200px">
 </p>
 <br/>
 <p align="center">
-  <a href="https://npmjs.com/package/browser-vite"><img src="https://img.shields.io/npm/v/browser-vite.svg" alt="npm package"></a>
-  <a href="https://nodejs.org/en/about/releases/"><img src="https://img.shields.io/node/v/browser-vite.svg" alt="node compatibility"></a>
+  <a href="https://npmjs.com/package/browser-vite-6"><img src="https://img.shields.io/npm/v/browser-vite-6.svg" alt="npm package"></a>
+  <a href="https://nodejs.org/en/about/releases/"><img src="https://img.shields.io/node/v/browser-vite-6.svg" alt="node compatibility"></a>
   <br/>
 </p>
 
-# browser-vite ⚡
+# browser-vite-6 ⚡
 
 Run Vite in the browser! This is a fork of Vite that compiles to a browser-compatible bundle, enabling you to use Vite's powerful transformation pipeline directly in web applications.
 
@@ -25,15 +25,15 @@ Run Vite in the browser! This is a fork of Vite that compiles to a browser-compa
 ## Installation
 
 ```bash
-npm install browser-vite
+npm install browser-vite-6
 # or
-npm install vite@npm:browser-vite  # alias as 'vite' for plugin compatibility
+npm install vite@npm:browser-vite-6  # alias as 'vite' for plugin compatibility
 ```
 
 ## Quick Start
 
 ```typescript
-import { createPluginContainer, ModuleGraph, transformRequest } from 'browser-vite';
+import { createPluginContainer, ModuleGraph, transformRequest } from 'browser-vite-6';
 
 // Or use esbuild-wasm directly for simple transforms
 import * as esbuild from 'esbuild-wasm';
@@ -69,9 +69,9 @@ npm run dev
 
 | Entry | Description |
 |-------|-------------|
-| `browser-vite` | Browser bundle (default) |
-| `browser-vite/dist/browser/index.js` | Explicit browser entry |
-| `browser-vite/dist/node/index.js` | Node.js entry |
+| `browser-vite-6` | Browser bundle (default) |
+| `browser-vite-6/dist/browser/index.js` | Explicit browser entry |
+| `browser-vite-6/dist/node/index.js` | Node.js entry |
 
 ## Browser Shims
 
@@ -96,7 +96,7 @@ import {
   ModuleGraph,
   transformRequest,
   resolveConfig,
-} from 'browser-vite';
+} from 'browser-vite-6';
 
 // Create Vite config
 const config = await resolveConfig({
@@ -132,15 +132,15 @@ This fork modifies Vite to run in browsers:
 | Version | Base Vite | Key Changes |
 |---------|-----------|-------------|
 | 6.0.0-browser.1 | Vite 6.0 | Rollup 4, Environment API, picocolors |
-| 2.7.0-browser.x | Vite 2.7 | Original browser-vite |
+| 2.7.0-browser.x | Vite 2.7 | Original browser-vite-6 |
 
 ## Contributing
 
-Issues and PRs welcome at [github.com/BLamy/browser-vite](https://github.com/BLamy/browser-vite)
+Issues and PRs welcome at [github.com/BLamy/browser-vite-6](https://github.com/BLamy/browser-vite-6)
 
 ## Credits
 
-- Original browser-vite by [‹div›RIOTS](https://divRIOTS.com)
+- Original browser-vite-6 by [‹div›RIOTS](https://divRIOTS.com)
 - Vite by [Evan You](https://github.com/yyx990803) and the Vite team
 
 ## License
