@@ -15,11 +15,11 @@
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-javascript": "^6.2.2",
     "@codemirror/theme-one-dark": "^6.1.2",
+    "@oxc-transform/binding-wasm32-wasi": "^0.108.0",
     "@tailwindcss/vite": "^4.1.18",
     "chii": "^1.15.5",
     "chobitsu": "^1.8.6",
     "codemirror": "^6.0.1",
-    "esbuild-wasm": "^0.24.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

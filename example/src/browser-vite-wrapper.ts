@@ -2,16 +2,10 @@
  * Browser-Vite Wrapper
  *
  * This wrapper provides a browser-compatible interface to browser-vite.
- * In a real implementation, this would:
- * 1. Load the browser-vite bundle from dist/browser/index.js
- * 2. Set up a virtual file system (memfs)
- * 3. Initialize the plugin container and module graph
- *
- * For this example, we simulate the core functionality to demonstrate
- * the API and test the transformation pipeline.
+ * Uses OXC (Oxidation Compiler) for fast TypeScript/JSX transforms.
  */
 
-import * as esbuild from 'esbuild-wasm';
+import { transform as oxcTransform } from '@oxc-transform/binding-wasm32-wasi';
 
 export interface TransformResult {
   code: string;
@@ -46,17 +40,32 @@ export class BrowserVite {
     // Initialize with core plugins
     this.plugins = [
       {
-        name: 'vite:esbuild',
+        name: 'vite:oxc',
         async transform(code: string, id: string) {
           if (id.endsWith('.ts') || id.endsWith('.tsx')) {
-            const result = await esbuild.transform(code, {
-              loader: id.endsWith('.tsx') ? 'tsx' : 'ts',
+            const isTsx = id.endsWith('.tsx');
+            const result = await oxcTransform(id, code, {
+              typescript: {
+                onlyRemoveTypeImports: false,
+                declaration: false,
+              },
+              ...(isTsx && {
+                jsx: {
+                  runtime: 'automatic',
+                  importSource: 'react',
+                },
+              }),
               sourcemap: true,
-              target: 'es2020',
             });
+
+            if (result.errors && result.errors.length > 0) {
+              console.error('[OXC] Transform errors:', result.errors);
+              throw new Error(result.errors.map((e: any) => e.message).join('\n'));
+            }
+
             return {
               code: result.code,
-              map: result.map,
+              map: result.map || null,
             };
           }
           return null;
@@ -66,15 +75,22 @@ export class BrowserVite {
         name: 'vite:jsx',
         async transform(code: string, id: string) {
           if (id.endsWith('.jsx')) {
-            const result = await esbuild.transform(code, {
-              loader: 'jsx',
+            const result = await oxcTransform(id, code, {
+              jsx: {
+                runtime: 'automatic',
+                importSource: 'react',
+              },
               sourcemap: true,
-              target: 'es2020',
-              jsx: 'automatic',
             });
+
+            if (result.errors && result.errors.length > 0) {
+              console.error('[OXC] Transform errors:', result.errors);
+              throw new Error(result.errors.map((e: any) => e.message).join('\n'));
+            }
+
             return {
               code: result.code,
-              map: result.map,
+              map: result.map || null,
             };
           }
           return null;
@@ -123,13 +139,10 @@ export default css;
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    // Initialize esbuild-wasm - use unpkg with matching version
-    await esbuild.initialize({
-      wasmURL: 'https://unpkg.com/esbuild-wasm@0.24.2/esbuild.wasm',
-    });
-
+    // OXC WASM is loaded automatically when the module is imported
+    // No explicit initialization needed like esbuild
     this.initialized = true;
-    console.log('[BrowserVite] Initialized with plugins:', this.plugins.map(p => p.name));
+    console.log('[BrowserVite] Initialized with OXC transformer, plugins:', this.plugins.map(p => p.name));
   }
 
   /**
