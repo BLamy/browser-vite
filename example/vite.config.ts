@@ -14,12 +14,20 @@ export default defineConfig({
   base: process.env.GITHUB_PAGES ? '/browser-vite/' : '/',
   server: {
     port: 5173,
+    // Required headers for SharedArrayBuffer (used by OXC WASM workers)
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   build: {
-    target: 'es2020',
+    target: 'esnext',  // Required for top-level await in OXC WASM
     outDir: 'dist',
   },
   optimizeDeps: {
-    include: ['esbuild-wasm'],
+    exclude: ['@oxc-transform/binding-wasm32-wasi'],
+  },
+  worker: {
+    format: 'es',
   },
 });
